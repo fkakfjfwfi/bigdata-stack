@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>01 · Hadoop 基础与集群架构 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c01">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch01.html" data-nav="c01" class="active">第 01 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第一阶段 · Hadoop / <b>01 · Hadoop 基础与集群架构</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01" class="active"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <div class="grp">后续章节</div>
+      <a href="ch02.html" data-nav="c02"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <a href="index.html"><span class="no">03</span>Hive 数仓（待补）</a>
+      <a href="index.html"><span class="no">04</span>MapReduce 与 YARN（待补）</a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 08 天 · 27 个视频 · 4.1 小时</span>
+        <h1>01 · Hadoop 基础与集群架构</h1>
+        <p class="sub">这一章要解决三件事：看懂 Hadoop 的<b>架构图</b>、能在三台机器上<b>搭起一个集群</b>、跑通第一条数据链路。前四节是地图（不涉及操作），中间两节是动手，最后两节建立"数据在集群里怎么流动"的直觉。<b>如果你只想快速搭起来，至少先读 1.4 和 1.6</b>——那里有三台机器的角色分配和最常遇到的八个报错。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 08 天（录制版本 <b>Hadoop 3.3.0</b>、JDK 1.8、CentOS 7 系）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>1.5 / 1.6</b> 涉及具体版本号、下载地址、配置文件路径，请以你实际安装的发行版为准；<b>1.1~1.4、1.7~1.8</b> 是架构与方法论，不受版本影响。原课有 2 个"回顾"视频已跳过。</span>
+        </div>
+
+        <div class="pwrap">
+          <div class="progress"><div class="fill" data-progress-bar="c01"></div></div>
+          <span class="plabel" data-progress-label="c01"></span>
+        </div>
+      </section>
+
+      <!-- ============ 1.1 ============ -->
+      <h2>1.1 Hadoop 是什么：两层含义，两件事</h2>
+
+      <p>先说最容易含混的地方。<b>"Hadoop"这个词在日常对话里有两个所指</b>，混着用会让人误解你的水平。</p>
+
+      <p><b>狭义的 Hadoop</b>：Apache 旗下一个用 Java 写的开源软件，它的全部使命就两件事——<b>海量数据存得下</b>、<b>海量数据算得动</b>。落到工程上，是三个组件：</p>
+
+      <table>
+        <thead><tr><th>组件</th><th>管什么</th><th>一句话理解</th></tr></thead>
+        <tbody>
+          <tr><td><b>HDFS</b></td><td>海量数据存储</td><td>把多台机器的硬盘"打通"，对外像一个盘</td></tr>
+          <tr><td><b>MapReduce</b></td><td>海量数据计算</td><td>把一个大计算拆到多台机器上并行跑</td></tr>
+          <tr><td><b>YARN</b></td><td>资源调度</td><td>多个任务抢 CPU/内存时，由它统一分配（2.0 之后才有）</td></tr>
+        </tbody>
+      </table>
+
+      <p>YARN 单独说一句，因为初学者最容易把它当成"计算的"。<b>它本身不存数据，也不算数据</b>——它是个记账的。一个集群不可能只跑一个任务，任务来了要申请多少内存、多少 CPU，谁先谁后，得有本账。这本账就是 YARN。</p>
+
+      <p><b>广义的 Hadoop</b>：围绕上面那三件套长出来的整个生态圈——Hive 做 SQL、HBase 做列存、Sqoop 搬数据、Flume 收日志、ZooKeeper 做协调、Spark/Flink 做更快的计算。</p>
+
+      <div class="callout info"><b>面试和工作中说"Hadoop"，八成指广义。</b>有人说"我们用 Hadoop 做数仓"，那一定不是指那个 tar.gz，而是指 HDFS + Hive + YARN 这一整套。搞清楚这个区别，沟通时不会答错方向。</div>
+
+      <p><b>为什么需要它？</b>一个具体量级：中国移动北京在 2016 年，单日数据量约 <b>2 TB</b>。单块硬盘装不下，换更贵的机器不划算，唯一的出路是<b>把一堆普通机器串起来</b>。这就是 Hadoop 的全部出发点——不是"技术先进"，是"便宜且能扩容"。</p>
+
+      <p class="muted small">（02 · 00:59–05:03）</p>
+
+      <!-- ============ 1.2 ============ -->
+      <h2>1.2 发展史与版本演进：每一代补了哪个洞</h2>
+
+      <h3>从"存不下"到 Google 的三篇论文</h3>
+
+      <p>主角是 <b>Doug Cutting</b>，Hadoop 之父。他当时在 Yahoo 做搜索引擎，手上项目叫 <b>Nutch</b>——干的就是爬虫那套活：抓网页、落库、清洗、分类、供检索。</p>
+
+      <p>然后撞上第一个瓶颈：<b>存不下</b>。爬到数十亿网页，而 2004/2005 年主流硬盘只有 40G / 80G，换超大型数据库也无解，项目卡了很久。</p>
+
+      <p>转机是 Google 发表的一篇论文：<b>GFS（Google File System）</b>——把多台计算机串起来共同对外提供存储，数据切成一块一块、每台分担一部分。Cutting 据此写出了第一个组件 <b>HDFS</b>。</p>
+
+      <p>第二个瓶颈：<b>算不动</b>。数据散在几十台机器上，怎么汇总、怎么分类？Google 第二篇论文 <b>MapReduce</b> 给了答案（分布式数据处理 + 超大型集群管理）。照此写出了 MapReduce。</p>
+
+      <p>2006 年项目定名 Hadoop，2008 年整体捐给 <b>Apache 软件基金会</b>，成为顶级项目。</p>
+
+      <p>第三篇论文 <b>BigTable</b> 是另一条支线：关系型数据库在海量数据下撑不住，Google 自研 BigTable，业界据此做出了 <b>HBase</b>。</p>
+
+      <div class="callout ok"><b>这套组合拳面试问得非常多：</b>Hadoop 之父是 Doug Cutting；起源项目叫 Nutch；受 Google 三篇论文（GFS / MapReduce / BigTable）启发；2008 年归入 Apache。四个点，一个都别错。</div>
+
+      <h3>版本演进：三代的差别只在"有没有 YARN"</h3>
+
+      <p>这是本节最值钱的一条线。别看版本号唬人，骨架其实早就定型了：</p>
+
+<pre class="code">Hadoop 1.x        HDFS（存储） + MapReduce（计算）            <span class="cm"># 两个组件</span>
+Hadoop 2.x        HDFS（存储） + YARN（调度） + MapReduce      <span class="cm"># 三个组件</span>
+Hadoop 3.x        HDFS + YARN + MapReduce                    <span class="cm"># 组件不变，只是优化</span></pre>
+
+      <p><b>1.x 的病根在哪</b>：存储和计算是分开的两块，但"资源管理"没有独立出来，被<b>焊死在 MapReduce 内部</b>——谁跑任务谁自己管机器。后果是集群被绑死成"只能跑 MapReduce 的集群"。你想上 Spark、Impala、Flink，没有公共的地方申请资源，只能各建一套集群。</p>
+
+      <p><b>2.x 怎么治的</b>：把"资源调度"从计算框架里剥出来，做成独立的一层 YARN。计算框架变成 YARN 上的<b>租户</b>，谁都可以来申请资源。这才让"一个物理集群跑多种计算引擎"成立——也是今天 Spark on YARN、Flink on YARN 的前提。</p>
+
+      <p><b>3.x 改了什么</b>：讲者原话是"2.0 和 3.0 从底层架构来说只是做了一些性能优化，组件上没有什么太大变化"。所以别被版本号吓住，<b>三件套的骨架从 2.x 就定型了</b>。3.x 的具体增益在 1.3 详说。</p>
+
+      <div class="callout info"><b>一句话记住三代：</b>只能存 → 能存能算 → 能存能算还能被多方共用。<b>判断一个集群是几代，看有没有 YARN 就够了。</b></div>
+
+      <h3>发行版：为什么企业用的不是 Apache 版</h3>
+
+      <p>能下载到的都叫"发行版"，分两大类：</p>
+
+      <table>
+        <thead><tr><th></th><th>Apache 社区版</th><th>商业版（CDH / HDP）</th></tr></thead>
+        <tbody>
+          <tr><td>迭代速度</td><td><b>快</b>，新特性先上</td><td>慢，求稳</td></tr>
+          <tr><td>稳定性</td><td>一般</td><td><b>好</b>，经过厂商测试与打包</td></tr>
+          <tr><td>跨版本兼容</td><td><b>差</b>：3 不一定兼容 2</td><td>好，下一版通常兼容上一版</td></tr>
+          <tr><td>运维配套</td><td>自己拼</td><td>自带管理平台、监控、工单</td></tr>
+          <tr><td>成本</td><td>完全免费</td><td>部分服务收费</td></tr>
+        </tbody>
+      </table>
+
+      <p>两个名字要认准：<b>CDH</b>（Cloudera Distribution including Apache Hadoop）与 <b>HDP</b>（Hortonworks Data Platform）。<b>HDP 已被 Cloudera 收购</b>，现在是同一家公司的两条产品线。补一个事实：Doug Cutting 本人就在 Cloudera 任职，所以 CDH 可以认为是商业版里最正统的那一支。</p>
+
+      <p><b>企业实际怎么选</b>：生产要稳、要有人兜底，所以商业版更常见；学习与验证用 Apache 版最快，能看到最原始的样子。这门课就是这个安排——基础阶段用 Apache <b>3.3.0</b>，到项目阶段再上商业版。</p>
+
+      <div class="callout warn"><b>一条铁律：集群里所有节点的发行版与版本必须完全一致。</b>Apache 版跨大版本混用基本必炸（配置项名、jar 包结构都有差异）。别把 2.x 的配置往 3.x 上抄。</div>
+
+      <p class="muted small">（03 全篇；05 · 00:13–04:37）</p>
+
+      <!-- ============ 1.3 ============ -->
+      <h2>1.3 三代架构：从"一个大脑"到"职责拆分"</h2>
+
+      <p>1.2 讲的是版本编号，这一节讲<b>图上到底画了几个框</b>。看懂这三张演进的图，后面所有的角色、进程、报错才有归属。</p>
+
+      <h3>Hadoop 1.x：JobTracker 一肩挑</h3>
+
+<pre class="code">Hadoop 1.x
+├── HDFS 集群（主从）
+│   ├── NameNode           ×1    元数据（目录树 + 块映射），不存真实数据
+│   ├── SecondaryNameNode  ×1    辅助合并 edits → fsimage，<span class="hl">不是备份</span>
+│   └── DataNode           ×N    真实数据块，心跳 + 块汇报
+└── MapReduce 集群（主从）
+    ├── JobTracker         ×1    接任务 + 分任务 + 资源调度  ← <span class="hl">全集群唯一</span>
+    └── TaskTracker        ×N    执行 JobTracker 派下来的 Task</pre>
+
+      <p>JobTracker 干三件事：接收客户端作业、把作业拆成 Task 往下分、按任务需求分配 CPU/内存。问题也出在这里——<b>它一个人干了三份活，而且有且只有一个</b>。</p>
+
+      <p>由此产生三个后果，正是后面每一代要解决的：</p>
+      <ol>
+        <li><b>单点故障</b>：JobTracker 挂了，整个集群无法再对外提供计算服务。</li>
+        <li><b>职责过重</b>：资源调度和任务生命周期耦合在一个进程里，集群一大它就是瓶颈。</li>
+        <li><b>只能跑 MapReduce</b>：资源被 MR 独占，别的计算框架进不来。</li>
+      </ol>
+
+      <h3>Hadoop 2.x：把"管资源"和"管任务"拆开</h3>
+
+<pre class="code">Hadoop 2.x / 3.x
+├── HDFS 集群（未改动）
+│   ├── NameNode          ×1（HA 时 2；3.x 支持多 NN）
+│   ├── SecondaryNameNode / Standby NameNode
+│   └── DataNode          ×N
+├── YARN 集群（主从）
+│   ├── ResourceManager   ×1（HA 时 2）  只管全集群资源 + 接作业
+│   ├── NodeManager       ×N            单机资源管理 + 拉起/监控 container
+│   └── ApplicationMaster 每作业 1 个   该作业的"小 JobTracker"
+└── MapReduce —— <span class="hl">不在架构图上</span>：客户端 jar + AM/Task 代码</pre>
+
+      <p><b>JobTracker 的职责被拆到了哪</b>，这张表建议记住，画架构图和面试都用得上：</p>
+
+      <table>
+        <thead><tr><th>1.x 里 JobTracker 干的活</th><th>2.x 落到谁头上</th></tr></thead>
+        <tbody>
+          <tr><td>全集群资源管理与分配</td><td><b>ResourceManager</b></td></tr>
+          <tr><td>接收作业、拆任务、调度单个作业</td><td><b>ApplicationMaster</b>（每个作业一个）</td></tr>
+          <tr><td>在机器上启进程、监控任务</td><td><b>NodeManager</b> + container</td></tr>
+          <tr><td>TaskTracker 本身</td><td>被 NodeManager + container 取代，不再有独立常驻角色</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>"2.x 没有 MapReduce 集群了"是口头简化，别照着画图。</b>MapReduce 组件仍然存在，但它<b>不再是物理角色，而是逻辑角色 / 代码</b>。提交一个 MR 作业，是把 jar 交给 ResourceManager，RM 调度给 NodeManager 去跑。所以架构图上不要给 MapReduce 画第三个框、也不要画它的常驻进程——这个错误非常常见。</div>
+
+      <h3>Hadoop 3.x：架构没变，补的是"单点"和"效率"</h3>
+
+      <p>2.x 拆掉了 JobTracker 这个单点，但<b>NameNode 还是单点</b>——"NameNode 坏了 HDFS 就坏了"。3.x 从这一层往下补。架构组成和 2.x 完全一样，改的是这些：</p>
+
+      <table>
+        <thead><tr><th>3.x 的变化</th><th>解决什么问题</th></tr></thead>
+        <tbody>
+          <tr><td>多 NameNode 支持</td><td>NN 单点：从"一个 NN"变成可多 NN</td></tr>
+          <tr><td>EC 纠删码（Erasure Coding）</td><td>三副本存储开销大：用校验块换空间</td></tr>
+          <tr><td>多个 ResourceManager</td><td>RM 单点：做主备 HA</td></tr>
+          <tr><td>MapReduce 本地化优化、内存参数自动推断</td><td>减少网络传输、免去手调内存</td></tr>
+          <tr><td>YARN Timeline Service V2、队列配置增强</td><td>作业历史查询、多租户队列管理</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>两个特别容易混的点，面试爱考：</b>
+        <p>① <b>多 NameNode ≠ 联邦（Federation）</b>。3.x 的"多 NN"同时服务于两种场景——<b>HA</b>（2 个 NN 主备，同一份命名空间）和 <b>Federation</b>（多个 NN 各管独立命名空间）。课程只说了"支持多个 NameNode"，没区分这两者。</p>
+        <p>② <b>多 ResourceManager 不是 3.x 独有</b>。讲 2.x 的 YARN 时就已经说"RM 可以有多个，将来做高可用"。</p>
+      </div>
+
+      <p class="muted small">（06 全篇；07 · 00:50–11:05）</p>
+
+      <!-- ============ 1.4 ============ -->
+      <h2>1.4 集群角色与部署：三台机器怎么分</h2>
+
+      <h3>先记住一句话：只有两个集群</h3>
+
+      <div class="callout ok"><b>HDFS 集群 + YARN 集群，就这两个。</b>两者<b>逻辑上分离</b>（画图是两个独立的框，互不依赖、互不影响），<b>物理上在一起</b>（机器不够时，NameNode 和 ResourceManager 装同一台，DataNode 和 NodeManager 装同一台）。</div>
+
+      <p>这句话解释了一个常见困惑：为什么架构图上是两个框，<code class="inline">jps</code> 出来的进程却混在同一台机器上。因为图讲的是<b>逻辑职责</b>，部署讲的是<b>物理位置</b>，两者不必一致。</p>
+
+      <h3>角色总表：谁管什么，挂了会怎样</h3>
+
+      <table>
+        <thead><tr><th>角色</th><th>进程名</th><th>职责</th><th>通常几个</th><th>挂了会怎样</th></tr></thead>
+        <tbody>
+          <tr><td>NameNode</td><td><code class="inline">NameNode</code></td><td>管理元数据（目录树、块→DN 映射），不存真实数据</td><td>1（HA 时 2）</td><td>HDFS 整体不可用：<b>读写全停</b>（数据块还在 DN 上，但没人知道怎么拼）</td></tr>
+          <tr><td>DataNode</td><td><code class="inline">DataNode</code></td><td>存真实数据块，定期向 NN 发心跳、汇报块列表</td><td>每台工作机 1 个</td><td>单台挂由副本兜底；<b>同时挂掉的数量超过副本数才丢块</b></td></tr>
+          <tr><td>SecondaryNameNode</td><td><code class="inline">SecondaryNameNode</code></td><td>辅助合并 edits 到 fsimage，做检查点</td><td>1（<b>必须与 NN 分机</b>）</td><td>不影响集群运行，只影响检查点；<b>不能顶替 NN</b></td></tr>
+          <tr><td>ResourceManager</td><td><code class="inline">ResourceManager</code></td><td>全集群资源管理、接收作业、分配 container</td><td>1（HA 时 2）</td><td>YARN 不可用：新作业提交不了</td></tr>
+          <tr><td>NodeManager</td><td><code class="inline">NodeManager</code></td><td>单机 CPU/内存管理，按 RM 指令拉起并监控 container</td><td>每台工作机 1 个</td><td>该机器上的任务失败、资源被摘出池；<b>HDFS 侧不受影响</b></td></tr>
+          <tr><td>ApplicationMaster</td><td><code class="inline">MRAppMaster</code> 等</td><td>单个作业的调度：向 RM 申请资源、与 NM 协商起 container、监控 Task</td><td>每作业 1 个</td><td>该作业失败，RM 会重新拉起 AM</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>SecondaryNameNode 这个名字骗了很多人。</b>它<b>不是</b> NN 的备机，也<b>不</b>负责备份。它是个"助手"，定期把 NN 的编辑日志（edits）合并进镜像（fsimage），减轻 NN 启动时的压力。只有特别紧急时才拿它恢复数据，而且<b>会丢一部分</b>。真正的 NN 热备叫 Standby NameNode（HA 方案）。</div>
+
+      <h3>三台机器怎么分（经典面试题）</h3>
+
+      <p>题目：给你 3 台机器，画出 Hadoop 架构图并说明每台跑哪些角色。</p>
+
+      <table>
+        <thead><tr><th>机器</th><th>部署的角色</th><th>数量</th><th>理由</th></tr></thead>
+        <tbody>
+          <tr><td><b>node1</b></td><td>NameNode + ResourceManager + DataNode + NodeManager</td><td>4</td><td>两个"主"放一起省机器；工作角色每台都有</td></tr>
+          <tr><td><b>node2</b></td><td>SecondaryNameNode + DataNode + NodeManager</td><td>3</td><td><b>SNN 必须与 NN 分机</b>：两者都吃内存</td></tr>
+          <tr><td><b>node3</b></td><td>DataNode + NodeManager</td><td>2</td><td>纯工作节点，提供存储 + 算力</td></tr>
+        </tbody>
+      </table>
+
+      <p>三台合计 <b>9 个进程</b>。这个数字后面会用到——1.6 讲排错时，<code class="inline">jps</code> 的输出就是拿它比对。</p>
+
+      <p><b>为什么 SNN 必须和 NN 分开？</b>两个都吃内存、都在管元数据。放一台机器上，内存很快耗光；机器一挂，元数据全没，整个集群直接瘫痪。NN 是集群的核心，不能和它的助手绑在一条船上。</p>
+
+      <h3>四种部署方式：怎么判断、什么时候够用</h3>
+
+      <table>
+        <thead><tr><th>模式</th><th>机器数</th><th>怎么判断</th><th>用在哪</th></tr></thead>
+        <tbody>
+          <tr><td>本地模式</td><td>1</td><td><code class="inline">jps</code> 看不到 NameNode/DataNode 等守护进程，读写的是本地文件系统</td><td>调 MR 代码逻辑、跑小数据、入门 demo</td></tr>
+          <tr><td>伪分布式</td><td>1</td><td><code class="inline">jps</code> <b>能看到</b> NameNode/DataNode/RM/NM</td><td>学配置、验证 HDFS 与 YARN 行为、单机联调</td></tr>
+          <tr><td>完全分布式</td><td>≥3</td><td>角色分布在多台主机，走真实网络</td><td><b>课程重点 + 生产环境</b></td></tr>
+          <tr><td>HA 高可用</td><td>集群 + 冗余</td><td>NameNode 2 个、RM 2 个，存在主备切换</td><td>生产必备：一台故障不影响集群</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout info"><b>什么时候伪分布式就够？</b>只在一台机器上、只为跑通流程或验证配置时够用。一旦要验证多节点、数据本地性、副本分布、HA 切换、性能，就必须上完全分布式——<b>伪分布式根本模拟不出来</b>，因为它只有一个 DataNode，"副本放三台机器"这件事在它身上不存在。</div>
+
+      <p><b>装哪个包</b>：源码包（src）需要自己编译，流程复杂；编译好的 binary 包直接装。课程用后者，版本 <b>Hadoop 3.3.0</b>。面试常问"你们用的什么版本"，对版本号要有概念。</p>
+
+      <p class="muted small">（08 全篇；09 · 00:14–02:38；10 · 00:11–04:08）</p>
+
+      <!-- ============ 1.5 ============ -->
+      <h2>1.5 环境准备与四个核心配置</h2>
+
+      <p>前面四节都是地图。从这里开始动手。先说清楚<b>动手之前的四个前提</b>，缺一个后面都会卡：</p>
+
+      <ol>
+        <li><b>三台机器，主机名 node1 / node2 / node3</b>，且每台的 <code class="inline">/etc/hosts</code> 里有另外两台的名字映射。<b>这一步不做，后面所有"写主机名"的配置都会失败。</b></li>
+        <li><b>SSH 免密登录</b>：node1 能免密 ssh 到 node2/node3。因为 <code class="inline">start-dfs.sh</code> 的原理就是 ssh 到 workers 名单里的每台机器去拉进程。</li>
+        <li><b>JDK 1.8 装好</b>，<code class="inline">java -version</code> 有输出。</li>
+        <li><b>防火墙与 SELinux 关闭</b>（学习环境），否则 9870 / 8088 页面打不开。</li>
+      </ol>
+
+      <h3>要改的六个文件</h3>
+
+      <p>全部在 <code class="inline">$HADOOP_HOME/etc/hadoop</code> 下：</p>
+
+      <table>
+        <thead><tr><th>文件</th><th>管什么</th><th>本节改什么</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">hadoop-env.sh</code></td><td>Hadoop 自己的环境变量</td><td>JAVA_HOME + 5 个启动用户</td></tr>
+          <tr><td><code class="inline">core-site.xml</code></td><td><b>全局/核心配置</b>（面试常问"哪个是核心文件"，答案是它）</td><td>文件系统入口、临时目录</td></tr>
+          <tr><td><code class="inline">hdfs-site.xml</code></td><td>HDFS 专属</td><td>SecondaryNameNode 放哪</td></tr>
+          <tr><td><code class="inline">mapred-site.xml</code></td><td>MapReduce 专属</td><td>跑在 YARN 上、历史服务器</td></tr>
+          <tr><td><code class="inline">yarn-site.xml</code></td><td>YARN 专属</td><td>RM 在哪、shuffle、日志聚集</td></tr>
+          <tr><td><code class="inline">workers</code></td><td>集群有哪几台</td><td>三台主机名</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>配置的逻辑是"只在 node1 改，改完 scp 覆盖过去"。</b>所以 node1 改错 = 三台全错 = 集群起不来。反过来也有好处：看到"三台同时少同一个进程"，第一反应就该是配置错了，而不是一台台去修。</div>
+
+      <h3>① hadoop-env.sh：告诉 Hadoop JDK 在哪</h3>
+
+      <p>在文件<b>末尾追加</b>（不是在开头改注释）：</p>
+
+<pre class="code"><span class="kw">export</span> JAVA_HOME=/export/server/jdk1.8.0_241
+
+<span class="cm"># 3.x 起强制要求：启停脚本会 ssh 到各节点执行命令，必须显式声明用哪个用户跑</span>
+<span class="kw">export</span> HDFS_NAMENODE_USER=root
+<span class="kw">export</span> HDFS_DATANODE_USER=root
+<span class="kw">export</span> HDFS_SECONDARYNAMENODE_USER=root
+<span class="kw">export</span> YARN_RESOURCEMANAGER_USER=root
+<span class="kw">export</span> YARN_NODEMANAGER_USER=root</pre>
+
+      <p><b>两处容易错</b>：<code class="inline">JAVA_HOME</code> 要写<b>绝对路径</b>，不要写 <code class="inline">$JAVA_HOME</code>——脚本执行时机可能拿不到你 profile 里导出的值，报 <code class="inline">JAVA_HOME is not set</code>。另外那 5 个 USER 是 3.x 才强制的，2.x 教程里没有，照抄 2.x 会漏。</p>
+
+      <h3>② core-site.xml：两个改错就要命的属性</h3>
+
+<pre class="code">&lt;configuration&gt;
+    &lt;property&gt;
+        &lt;name&gt;fs.defaultFS&lt;/name&gt;
+        &lt;value&gt;hdfs://node1:8020&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;hadoop.tmp.dir&lt;/name&gt;
+        &lt;value&gt;/export/data/hadoop-3.3.0&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;hadoop.http.staticuser.user&lt;/name&gt;
+        &lt;value&gt;root&lt;/value&gt;
+    &lt;/property&gt;
+&lt;/configuration&gt;</pre>
+
+      <p><b><code class="inline">fs.defaultFS</code> 为什么必须写主机名而不是 localhost？</b></p>
+      <p>这是整个 Hadoop 的文件系统入口，客户端（<code class="inline">hdfs dfs -put</code>、Java API、Hive）全靠它找集群。<b>关键在于：这个值会被写进 NameNode 返回给客户端的元数据里。</b>你写 <code class="inline">localhost</code>，客户端就会去连<b>它自己</b>的 8020——在 node2 上执行命令直接 <code class="inline">Connection refused</code>。写 <code class="inline">127.0.0.1</code> 同理。</p>
+
+      <div class="callout warn"><b><code class="inline">hadoop.tmp.dir</code> 不配会怎样？</b>它是 Hadoop 的本地工作目录，NameNode 的 <code class="inline">fsimage</code>/<code class="inline">edits</code>、DataNode 的数据块默认都往这下面放。<b>不配就落在 <code class="inline">/tmp</code> 下，而 <code class="inline">/tmp</code> 会被系统定期清理</b>（常见 30 天），一旦被清，NameNode 元数据全丢 = 集群数据全没。<b>这是"跑了两天突然起不来"的头号原因。</b>目录不用手动建，第一次 format 会自动生成。</div>
+
+      <h3>③ hdfs-site.xml：只改一个，SNN 在哪</h3>
+
+<pre class="code">&lt;configuration&gt;
+    &lt;property&gt;
+        &lt;name&gt;dfs.namenode.secondary.http-address&lt;/name&gt;
+        &lt;value&gt;node2:9868&lt;/value&gt;
+    &lt;/property&gt;
+&lt;/configuration&gt;</pre>
+
+      <p>NameNode 在 node1（由 <code class="inline">fs.defaultFS</code> 决定），SecondaryNameNode 放 node2。<b>SNN 必须独立一台机器</b>——两者都吃内存，放一起既抢资源又失去容错意义。</p>
+      <p>注意 <code class="inline">dfs.replication</code>（副本数）这里<b>没配</b>，因为默认就是 3，而我们正好 3 台机器。</p>
+
+      <h3>④ mapred-site.xml：三个最容易漏的 HADOOP_MAPRED_HOME</h3>
+
+<pre class="code">&lt;configuration&gt;
+    &lt;property&gt;
+        &lt;name&gt;mapreduce.framework.name&lt;/name&gt;
+        &lt;value&gt;yarn&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;mapreduce.jobhistory.address&lt;/name&gt;
+        &lt;value&gt;node1:10020&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;mapreduce.jobhistory.webapp.address&lt;/name&gt;
+        &lt;value&gt;node1:19888&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.app.mapreduce.am.env&lt;/name&gt;
+        &lt;value&gt;HADOOP_MAPRED_HOME=/export/server/hadoop-3.3.0&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;mapreduce.map.env&lt;/name&gt;
+        &lt;value&gt;HADOOP_MAPRED_HOME=/export/server/hadoop-3.3.0&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;mapreduce.reduce.env&lt;/name&gt;
+        &lt;value&gt;HADOOP_MAPRED_HOME=/export/server/hadoop-3.3.0&lt;/value&gt;
+    &lt;/property&gt;
+&lt;/configuration&gt;</pre>
+
+      <p><b><code class="inline">mapreduce.framework.name=yarn</code></b> 决定任务提交给谁。默认是 <code class="inline">local</code>，也就是单机跑，跟集群没关系——<b>忘了改这个，你会发现"作业能跑但 8088 上看不到"</b>。</p>
+
+      <p><b>两个历史服务器端口别混</b>：<code class="inline">10020</code> 是内部 RPC（客户端和 AM 写作业历史用），<code class="inline">19888</code> 是给人看的 Web UI。</p>
+
+      <div class="callout warn"><b>最后三组 <code class="inline">HADOOP_MAPRED_HOME</code> 是最容易漏的。</b>YARN 拉起的容器里<b>没有你的环境变量</b>，必须显式告诉它 Hadoop 装在哪，否则任务直接失败，报 <code class="inline">HADOOP_MAPRED_HOME is not set</code>。这三行在 2.x 教程里通常没有，是 3.x 加上去的。</div>
+
+      <h3>⑤ yarn-site.xml：RM 在哪，以及为什么必须开 shuffle</h3>
+
+<pre class="code">&lt;configuration&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.resourcemanager.hostname&lt;/name&gt;
+        &lt;value&gt;node1&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.nodemanager.aux-services&lt;/name&gt;
+        &lt;value&gt;mapreduce_shuffle&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.log-aggregation-enable&lt;/name&gt;
+        &lt;value&gt;true&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.log.server.url&lt;/name&gt;
+        &lt;value&gt;http://node1:19888/jobhistory/logs&lt;/value&gt;
+    &lt;/property&gt;
+    &lt;property&gt;
+        &lt;name&gt;yarn.log-aggregation.retain-seconds&lt;/name&gt;
+        &lt;value&gt;604800&lt;/value&gt;
+    &lt;/property&gt;
+&lt;/configuration&gt;</pre>
+
+      <p><b><code class="inline">aux-services=mapreduce_shuffle</code> 不配，MR 任务直接失败</b>——Reduce 阶段要靠 NodeManager 上的 shuffle 服务去拉 map 的输出。</p>
+      <p><b>日志聚集那三项要一起配</b>：不开 <code class="inline">log-aggregation-enable</code>，19888 上点进去看不到日志；<code class="inline">604800</code> 秒 = 7 天，过期自动清。</p>
+
+      <h3>⑥ workers：这份名单就是集群的边界</h3>
+
+<pre class="code">node1
+node2
+node3</pre>
+
+      <p><b>三件事，每件都能让集群起不来</b>：</p>
+      <ul>
+        <li><b>3.x 叫 <code class="inline">workers</code>，2.x 叫 <code class="inline">slaves</code></b>。网上大量 2.x 教程写 <code class="inline">slaves</code>，在 3.3.0 里照抄会找不到文件。</li>
+        <li><b>默认内容是 <code class="inline">localhost</code>，必须删掉</b>。留着就是"只有本机一个节点"，等于单机模式——<code class="inline">start-dfs.sh</code> 只会起 node1 的进程。</li>
+        <li><b>一行一个主机名</b>，不要 IP、不要逗号。</li>
+      </ul>
+
+      <p><b>同步到另外两台</b>（这步不做等于白配）：</p>
+
+<pre class="code"><span class="kw">cd</span> /export/server
+scp -r hadoop-3.3.0 node2:<span class="hl">$PWD</span>
+scp -r hadoop-3.3.0 node3:<span class="hl">$PWD</span>
+
+<span class="cm"># 抽查三台是否一致</span>
+<span class="kw">for</span> h <span class="kw">in</span> node1 node2 node3; <span class="kw">do</span> <span class="kw">echo</span> <span class="st">"== $h"</span>; <span class="kw">ssh</span> $h <span class="st">"cat /export/server/hadoop-3.3.0/etc/hadoop/workers"</span>; <span class="kw">done</span></pre>
+
+      <p><code class="inline">hadoop-3.3.0</code> 后面<b>不要加斜杠</b>，加了会把目录里的内容散到目标目录。<code class="inline">$PWD</code> 是"当前路径"，等价于写全 <code class="inline">node2:/export/server</code>，好处是路径不会抄错。</p>
+
+      <p class="muted small">（11~15 全篇）</p>
+
+      <!-- ============ 1.6 ============ -->
+      <h2>1.6 启动与排错：jps 是你的第一双眼睛</h2>
+
+      <h3>format：只做一次，只在一台机器上做</h3>
+
+<pre class="code">hdfs namenode -format</pre>
+
+      <p>为什么必须先 format？因为数据目录根本还不存在。这条命令做的事是：<b>在 NameNode 上初始化元数据目录</b>（建 <code class="inline">dfs/name</code>，写入初始的 <code class="inline">fsimage</code> 和 <code class="inline">clusterID</code>）。</p>
+
+      <p>判断成功的三个信号：末尾有 <code class="inline">Storage directory ... has been successfully formatted</code>、退出码是 0、<code class="inline">dfs/name</code> 目录被创建出来了。</p>
+
+      <div class="callout warn"><b>这条命令在生产环境执行完应该被拉出去。</b>它相当于把放元数据的目录清掉——元数据没了，HDFS 里存的所有文件就都找不回来了（数据块还在 DataNode 磁盘上，但没人知道它们拼起来是什么文件）。</div>
+
+      <p><b>重复 format 到底会发生什么</b>，这是新手最常废掉集群的操作，机制值得看清：</p>
+      <ol>
+        <li>第二次 format 重新生成 <code class="inline">dfs/name</code>，写了一个<b>全新的 clusterID</b>。</li>
+        <li>但 <code class="inline">dfs/data/current/VERSION</code> 里还留着第一次的 clusterID，<b>DataNode 的数据没被清过</b>。</li>
+        <li>启动 DataNode 时它拿自己的 clusterID 去比对 NameNode 的，对不上，拒绝加入：<code class="inline">Incompatible clusterIDs</code>。</li>
+        <li>结果是 <b>NameNode 起得来、DataNode 全起不来</b>——<code class="inline">jps</code> 里只有 NameNode，9870 页面 <code class="inline">Live Nodes</code> 为 0，HDFS 处于"能看不能存"的状态。</li>
+      </ol>
+
+      <p><b>想重来的正确姿势</b>（顺序不能反）：</p>
+
+<pre class="code">stop-all.sh                          <span class="cm"># 1. 先全停，别带着半死进程删文件</span>
+jps                                  <span class="cm"># 2. 三台都确认没有残留进程，有就 kill</span>
+<span class="kw">rm</span> -rf /export/data/hadoop-3.3.0/dfs        <span class="cm"># 3. node1 删整个 dfs</span>
+<span class="kw">rm</span> -rf /export/data/hadoop-3.3.0/dfs/data   <span class="cm">#    node2/node3 删 data</span>
+<span class="kw">rm</span> -rf $HADOOP_HOME/logs                    <span class="cm"># 4. ★ 连 logs 一起删</span>
+hdfs namenode -format                       <span class="cm"># 5. 回 node1 重新 format，只做一次</span></pre>
+
+      <div class="callout info"><b>为什么必须连 <code class="inline">logs</code> 一起删？</b>日志是<b>追加写</b>的。你重来一遍之后去 <code class="inline">tail</code> 日志，看到的第一屏很可能还是上次失败的旧报错（比如那个已经修好的 clusterID 不一致），于是你去修一个根本不存在的问题，越修越乱。<b>删掉 = 保证这次启动的日志只属于这次。</b>这是最容易漏的一步。</div>
+
+      <h3>启动：三种方式，按场景选</h3>
+
+<pre class="code">start-all.sh                              <span class="cm"># 一次性全起（学习期最常用）</span>
+start-dfs.sh &amp;&amp; start-yarn.sh              <span class="cm"># 分开起（推荐：出问题好定位）</span>
+hdfs --daemon start datanode              <span class="cm"># 单独起某一个（排错时用这个）</span></pre>
+
+      <p>启动过程中终端会刷一堆 <code class="inline">starting namenode, logging to ...</code>，这<b>不是报错</b>。真正的错误会带 <code class="inline">ERROR</code> 字样或异常堆栈。</p>
+
+      <h3>jps 自检：这个集群到底该有几个进程</h3>
+
+      <p><code class="inline">jps</code> 就是"看当前机器的 Java 进程"。Hadoop 每个组件都是一个 JVM 进程，所以它是最快、不依赖任何页面和配置的自检手段。<b>三台各敲一次，对着这张表看</b>：</p>
+
+      <table>
+        <thead><tr><th>机器</th><th>该有的进程</th><th>个数</th></tr></thead>
+        <tbody>
+          <tr><td><b>node1</b></td><td><code class="inline">NameNode</code>、<code class="inline">DataNode</code>、<code class="inline">ResourceManager</code>、<code class="inline">NodeManager</code></td><td>4</td></tr>
+          <tr><td><b>node2</b></td><td><code class="inline">SecondaryNameNode</code>、<code class="inline">DataNode</code>、<code class="inline">NodeManager</code></td><td>3</td></tr>
+          <tr><td><b>node3</b></td><td><code class="inline">DataNode</code>、<code class="inline">NodeManager</code></td><td>2</td></tr>
+          <tr><td><b>合计</b></td><td></td><td><b>9</b></td></tr>
+        </tbody>
+      </table>
+
+      <p>口诀：<b>NameNode 只在 node1、SecondaryNameNode 只在 node2、ResourceManager 只在 node1；DataNode 和 NodeManager 每台都有。</b>另外每台的 <code class="inline">jps</code> 输出里会多一行 <code class="inline">Jps</code> 自己，属正常。</p>
+
+      <h3>排错：先分层，再看关键字</h3>
+
+      <p>老师给的不是"报错大全"，而是一条<b>固定路径</b>。记住这条，任何启动失败都能走下去：</p>
+
+<pre class="code">① 终端启动输出里有没有 ERROR？
+   ├── 有 → 它通常已经把「哪个文件、第几行」打出来了，直接去改配置
+   └── 没有 → 往下
+② jps 少哪个进程？
+   ├── 缺 → ③
+   └── 不缺但页面打不开 → 查端口 / 防火墙 / hosts
+③ 手工单独启那一个进程（hdfs --daemon start xxx），看它自己报什么
+   ├── 起来了 → 集群级脚本问题（workers 文件 / ssh 免密）
+   └── 起不来 → ④
+④ 去 $HADOOP_HOME/logs/ 看「和它同名」的日志</pre>
+
+      <p>第 ④ 步的对应关系：<b>哪个服务起不来就看哪个日志，日志文件名里带服务名</b>。比如 node2 的 DataNode 没起来，就看 <code class="inline">hadoop-hdfs-datanode-node2.log</code>。看的时候<b>先看 <code class="inline">.log</code> 的尾部</b>——最新的错误在最后。<code class="inline">.out</code> 是标准输出，<code class="inline">.log.1</code> 是滚动的历史文件。</p>
+
+      <h3>八个最常见的报错</h3>
+
+      <p>按"现象 → 原因 → 解法"整理。括号里是判据关键字，<b>看到这几个词就该往那个方向想</b>。</p>
+
+      <div class="callout warn"><b>E1 · 启动到 SecondaryNameNode 时抛 <code class="inline">SAXParseException</code></b>
+        <p>现象：NameNode、DataNode 看着都正常启动了，到 SNN 那一步突然炸，报 <code class="inline">error parsing conf core-site.xml</code> + <code class="inline">lineNumber: 38</code> + <code class="inline">must be terminated by the matching end-tag</code>。</p>
+        <p>原因：XML 少了一个闭合标签。而 NameNode 恰好没读那个属性所以没报，SNN 读到了才炸——<b>所以"前半段没报错"不代表配置对</b>。</p>
+        <p>解法：<b>别只看报的第 38 行，真正的错在它上面几行</b>。改完先 <code class="inline">stop-dfs.sh</code> 再 <code class="inline">start-dfs.sh</code>（不能只重启失败的那个）。</p>
+        <p>自查捷径（视频没讲，但这招比启集群快得多）：<code class="inline">python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('core-site.xml')"</code>，不报错就是格式对。</p>
+      </div>
+
+      <div class="callout warn"><b>E2 · 某个进程就是没起来，但终端不报错</b>
+        <p>原因分三类：配置项错、端口冲突、依赖的上游没起来。</p>
+        <p>解法：手工启一次让错误暴露在自己眼前——<code class="inline">hdfs --daemon start datanode</code>，然后看日志。</p>
+        <p>判据：日志里出现 <code class="inline">Retrying connect to server: node1:8020</code> 或 <code class="inline">Connection refused</code>，说明它在连 NameNode 时失败，<b>问题不在 DataNode 本身</b>。处理顺序：node1 上 <code class="inline">jps</code> 有没有 NameNode → 没有就查 NameNode 日志 → 有就 <code class="inline">telnet node1 8020</code> 试端口。</p>
+      </div>
+
+      <div class="callout warn"><b>E3 · 某台报 <code class="inline">JAVA_HOME is not set</code></b>
+        <p>原因：环境变量只在第一台配了。<b>安装包只传第一台是对的，但环境变量必须每台都配</b>——配置文件可以 scp 分发，环境变量不会跟着走。</p>
+        <p>判据：那台机器敲 <code class="inline">jps</code> 只有一行 <code class="inline">Jps</code>，说明 JVM 都找不到。</p>
+      </div>
+
+      <div class="callout warn"><b>E4 · <code class="inline">Permission denied</code></b>
+        <p>原因：HDFS 也有 POSIX 权限，普通用户往 <code class="inline">/</code>（owner 是启动 NameNode 的用户）下写会被拒。</p>
+        <p>解法：写到自己的家目录 <code class="inline">hdfs dfs -mkdir -p /user/$(whoami)</code>，或学习环境直接 <code class="inline">-chmod -R 777</code>。</p>
+        <p>判据：报错里有 <code class="inline">user=xxx, access=WRITE, inode="/":hadoop:supergroup:drwxr-xr-x</code>，冒号后面就是当前 owner 和权限。</p>
+      </div>
+
+      <div class="callout warn"><b>E5 · <code class="inline">NameNode is not formatted</code></b>
+        <p>原因：压根没 format 就启动了，<code class="inline">dfs/name</code> 目录不存在。</p>
+        <p>解法：回上一节 format。注意——<b>如果集群跑起来过、有数据了，就别再 format</b>。</p>
+      </div>
+
+      <div class="callout warn"><b>E6 · 三台全缺 DataNode，报 <code class="inline">Incompatible clusterIDs</code></b>
+        <p>原因：重复 format 了。见本节开头的机制说明。</p>
+        <p>解法：停集群 → 删 <code class="inline">dfs</code> <b>和 <code class="inline">logs</code></b> → 重新 format 一次。</p>
+      </div>
+
+      <div class="callout warn"><b>E7 · 进程全在，但 9870 打不开</b>
+        <p>三个可能：防火墙没关、<code class="inline">hosts</code> 没配（用主机名访问时解析不到）、<b>看的是旧端口 50070</b>（Hadoop 2.x 的端口，3.x 改成了 9870）。</p>
+      </div>
+
+      <div class="callout warn"><b>E8 · 作业能跑，但 8088 上看不到</b>
+        <p>原因：<code class="inline">mapreduce.framework.name</code> 没改成 <code class="inline">yarn</code>，还是默认的 <code class="inline">local</code>。作业在单机上跑完了，YARN 根本不知道有这回事。</p>
+      </div>
+
+      <p class="muted small">（16~19 全篇）</p>
+      <!-- ============ 1.7 ============ -->
+      <h2>1.7 HDFS 初体验：块、副本、客户端</h2>
+
+      <h3>三个端口，各管一件事</h3>
+
+      <table>
+        <thead><tr><th>端口</th><th>是什么</th><th>什么时候用它</th></tr></thead>
+        <tbody>
+          <tr><td><b>9870</b></td><td>NameNode 的 Web UI</td><td>看文件系统、块分布、Live Nodes 数量</td></tr>
+          <tr><td><b>8088</b></td><td>ResourceManager 的 Web UI</td><td>看作业列表、状态、日志入口</td></tr>
+          <tr><td><b>8020</b></td><td>NameNode 的 RPC 端口</td><td><b>不是给人看的</b>，客户端连它拿元数据</td></tr>
+        </tbody>
+      </table>
+
+      <p>先把三个端口分清，能省掉一半的"页面打不开"困惑——<b>9870 是 HDFS 的门面，8088 是 YARN 的门面，8020 是程序用的</b>。</p>
+
+      <h3>五个骨架命令</h3>
+
+<pre class="code">hdfs dfs -ls /                      <span class="cm"># 列目录</span>
+hdfs dfs -mkdir -p /itcast          <span class="cm"># 建目录（-p 递归）</span>
+hdfs dfs -put 本地文件 /itcast/       <span class="cm"># 上传</span>
+hdfs dfs -cat /itcast/文件           <span class="cm"># 看内容</span>
+hdfs dfs -get /itcast/文件 ./        <span class="cm"># 下载到本地当前目录</span>
+hdfs dfs -rm -r /itcast              <span class="cm"># 删除（-r 删目录）</span></pre>
+
+      <p>注意前缀是 <code class="inline">hdfs dfs</code>，不是 <code class="inline">hadoop fs</code>（后者也能用，是旧写法）。<b>这些命令操作的是集群上的文件，不是你本机的文件</b>——这一点在第一次用时容易混。</p>
+
+      <h3>块（block）：逻辑切分，不是物理预留</h3>
+
+      <p>这是最容易被误解的一个概念。<b>块大小是"每块的上限"，不是"每块的固定占用"</b>。</p>
+
+      <table>
+        <thead><tr><th>文件大小</th><th>块数</th><th>各块大小</th></tr></thead>
+        <tbody>
+          <tr><td>4 B</td><td>1</td><td>4 B（<b>不会真占 128 MB</b>）</td></tr>
+          <tr><td>200 MB</td><td>2</td><td>128 MB + 72 MB</td></tr>
+          <tr><td>256 MB</td><td>2</td><td>128 MB + 128 MB</td></tr>
+          <tr><td>300 MB</td><td>3</td><td>128 MB + 128 MB + 44 MB</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>为什么偏偏是 128 MB？</b>这不是拍脑袋，是"让磁盘尽量少寻道"的工程结论：机械盘一次寻道约 10 ms，顺序读约 100 MB/s。想让寻道开销占比压到 1% 左右，一块的大小 ≈ 传输速率 × 寻道时间 × 100 ≈ 100 MB，取 2 的整数次幂就是 <b>128 MB</b>。换句话说：<b>块要大到"读完一整块的时间远大于寻道时间"，顺序读才划算。</b></p>
+
+      <p><b>为什么不是 64 MB</b>：那是 Hadoop 1.x 的默认值。块数翻倍 → 元数据翻倍 → 切片翻倍 → 任务启动开销翻倍。</p>
+
+      <p><b>为什么不是 1 GB</b>：块太大会有三个真问题——并行度塌了（一块通常对应一个 map 任务，1 GB 文件就只有 1 个任务，集群再大也用不上）、恢复粒度太粗（一次要重传的数据太多）、传输时间过长（中途失败的代价高）。</p>
+
+      <div class="callout info"><b>块大小可配（<code class="inline">dfs.blocksize</code>），但生产上基本别动。</b>改了会让老文件和新文件的块尺寸混在一起，影响切片和均衡。知道"能改"就够了。</div>
+
+      <h3>小文件为什么是灾难</h3>
+
+      <p>NameNode 不存数据，只存元数据，而且<b>全部放在内存里</b>。一个文件（inode）加一个块，经验值各约 <b>150 字节</b>。算一下账：</p>
+
+      <table>
+        <thead><tr><th>场景</th><th>元数据对象</th><th>内存占用</th></tr></thead>
+        <tbody>
+          <tr><td>1 个 200 MB 文件</td><td>1 inode + 2 块</td><td>≈ 450 B</td></tr>
+          <tr><td>100 万个小文件</td><td>100 万 inode + 100 万块</td><td><b>≈ 300 MB 常驻堆</b></td></tr>
+          <tr><td>1 亿个小文件</td><td>1 亿 inode + 1 亿块</td><td><b>≈ 30 GB 常驻堆</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>同样 200 MB 数据，存成 1 个文件只花 450 字节元数据；拆成 100 万个小文件要花 300 MB 堆——差了 70 万倍。</b>NameNode 的堆是有限的（默认几 GB），千万级小文件就会把堆吃干，表现为频繁 Full GC、RPC 超时、集群"假死"；重启时还要把镜像全量加载进内存，启动时间从分钟级变成小时级。<b>这就是"HDFS 不适合存小文件"的根因</b>——不是存不下，是管不过来。</div>
+
+      <p>另外两个隐性成本：每个块都要定期向 NameNode 发块报告、每次读写都是一次 RPC，百万级小文件直接把 RPC 队列打满；MapReduce 一个切片一个任务，处理 1 KB 也要付几秒的启动开销。</p>
+
+      <p>对策方向（不用记全）：上传前合并成大文件、用 SequenceFile / ORC / Parquet 这类容器格式打包、历史数据打 HAR 归档。极端情况上 NameNode 联邦，但<b>联邦只是分摊压力，不减少元数据总量</b>。</p>
+
+      <h3>副本：3 份放在哪，代价是什么</h3>
+
+      <p>默认 <code class="inline">dfs.replication = 3</code>。我们这个 3 台机器的小集群，就是 node1 / node2 / node3 各一份。<b>容错能力：可以同时容忍 2 台故障而不丢数据。</b></p>
+
+      <p><b>真实集群的放置策略（机架感知）</b>不是随便扔：</p>
+      <ul>
+        <li>第 1 份：客户端所在节点（客户端在集群外时随机挑一个）。</li>
+        <li>第 2 份：<b>不同机架</b>的随机节点。</li>
+        <li>第 3 份：与第 2 份<b>同机架</b>的另一个节点。</li>
+      </ul>
+
+      <p>也就是 <b>1 份本机架 + 2 份跨机架</b>。为什么这么设计？跨机架带宽是稀缺资源——读的时候就近读本机架那份最快；同时单个机架断电（交换机挂、机柜掉电）也只丢 1 份。课堂上 3 台机器通常同机架甚至没配拓扑，所以退化成"三台各一份"。</p>
+
+      <p><b>代价</b>：存储利用率只有 1/3，写入网络放大 3 倍。<b>200 MB 文件实际占 600 MB。</b></p>
+
+<pre class="code">hdfs dfs -setrep -w 2 /itcast/文件      <span class="cm"># 改成 2 副本并等待完成</span>
+hdfs dfs -setrep -R 2 /itcast           <span class="cm"># 递归改整个目录</span></pre>
+
+      <p>两点注意：副本数设得比节点数大没有意义（3 台最多 3 份）；<b>副本因子设成 1 就等于没有冗余</b>。</p>
+
+      <h3>把块和副本合起来算一遍</h3>
+
+      <p>200 MB 文件进 HDFS，会发生什么？这个问题面试和排障都爱问：</p>
+      <ul>
+        <li><b>块数</b>：200 ÷ 128 = 1 余 72 → <b>2 个块</b>（128 MB + 72 MB）。</li>
+        <li><b>块副本数</b>：2 块 × 3 副本 = <b>6 份</b>。</li>
+        <li><b>实际占用</b>：200 MB × 3 = <b>600 MB</b>（按实际字节算，不是按 3 × 256 MB）。</li>
+        <li><b>写入交互</b>：客户端要向 NameNode 要 <b>2 次</b>块位置（每块一次），每块建一条 3 节点的写入管道。</li>
+      </ul>
+
+      <h3>客户端与集群：两套机器、两条链路</h3>
+
+      <p>这个模型能解释很多"为什么"。想象 <b>深圳的客户端</b> 连 <b>北京的集群</b>：</p>
+      <ul>
+        <li><b>控制面</b>：客户端通过 RPC 连 NameNode 的 <b>8020</b>，问"我要读这个文件，块在哪些 DataNode 上"。</li>
+        <li><b>数据面</b>：拿到位置后，客户端<b>直连 DataNode</b> 的 9866 端口传字节。<b>数据不经过 NameNode</b>。</li>
+      </ul>
+
+      <p>两个直接推论：<b>① 客户端机器必须能解析所有节点的主机名</b>（不然连不上 DN），这就是为什么 <code class="inline">fs.defaultFS</code> 不能写 localhost。<b>② 客户端本地删除文件，不影响 HDFS 上的副本</b>——两者本来就是两套系统。</p>
+
+      <p class="muted small">（22~24 全篇；块与副本的机制部分为补充）</p>
+
+      <!-- ============ 1.8 ============ -->
+      <h2>1.8 跑通第一个作业，以及作业记录与回收站</h2>
+
+      <h3>用自带示例跑 MapReduce</h3>
+
+<pre class="code">hadoop jar share/hadoop/mapreduce/hadoop-mapreduce-examples-3.3.0.jar pi 10 100</pre>
+
+      <p>四个部分拆开看：</p>
+
+      <table>
+        <thead><tr><th>片段</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">hadoop jar</code></td><td>用 Hadoop 的 jar 提交器去跑一个 Java 包</td></tr>
+          <tr><td><code class="inline">...examples-3.3.0.jar</code></td><td>要跑的 jar（版本号跟着自己集群走，可写 <code class="inline">*</code>）</td></tr>
+          <tr><td><code class="inline">pi</code></td><td>主类名，这里是求圆周率</td></tr>
+          <tr><td><code class="inline">10</code></td><td><b>map 任务数</b> —— 把大任务拆成 10 份</td></tr>
+          <tr><td><code class="inline">100</code></td><td><b>每个 map 的采样点数</b></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>这两个数字决定结果准不准</b>。课程演示时为跑得快用的是 <code class="inline">pi 2 4</code>（2 个 map、每个只采 4 个点），算出来是 3.5，离 3.14159 很远——<b>这不是算错了，是样本太少</b>。类比：调研全国平均工资，只抽 4 个人得出的结论当然不可信。</p>
+
+      <div class="callout warn"><b>输出目录必须不存在——这是新手第一次跑 MR 最常见的失败。</b>
+        <p><code class="inline">pi</code> 这个示例不写 HDFS 目录所以不会遇到，但同一个 jar 里的 <code class="inline">wordcount</code>、<code class="inline">grep</code>，以及你自己写的 MR，<b>输出路径必须是一个不存在的目录</b>：</p>
+        <p><code class="inline">FileAlreadyExistsException: Output directory hdfs://node1:8020/output already exists</code></p>
+        <p>原因是 Hadoop 用"目录创建成功"来保证这次输出是全新的、没被别的作业污染。处理只有两步：先删掉或换个路径，再重跑。</p>
+      </div>
+
+      <h3>历史服务器：为什么需要它</h3>
+
+      <p>不配会怎样？<b>8088 上只能看到正在跑的作业，跑完就查不到了</b>。因为作业结束后 ApplicationMaster 就退出了，运行时信息随之消失。JobHistoryServer 的作用就是把这些信息<b>落盘并留存</b>，供事后查看。</p>
+
+      <p>配置在 1.5 的 <code class="inline">mapred-site.xml</code> 里已经写好了（10020 + 19888 + 日志聚集）。这里补三个操作要点：</p>
+
+      <ol>
+        <li><b>改完配置要 scp 分发并重启集群</b>，配置不是热加载的。</li>
+        <li><b>历史服务器<b>不在</b> <code class="inline">start-all.sh</code> 的管理范围内</b>，必须单独启动：<code class="inline">mapred --daemon start historyserver</code>。这是最容易漏的一步——集群起来了但 19888 打不开。</li>
+        <li>验证地址：<code class="inline">http://node1:19888</code>。</li>
+      </ol>
+
+      <div class="callout info"><b>一个反直觉的点：重启集群后，原有作业记录会清空。</b>因为作业历史存在运行时的临时状态里，重启就没了。想让历史长期留存，得靠日志聚集把日志搬到 HDFS 上（<code class="inline">yarn.log-aggregation-enable</code>），这也是为什么 1.5 里那三项要一起配。</div>
+
+      <h3>回收站：默认没有，开之前删了就是删了</h3>
+
+      <p><b>HDFS 默认没有回收站</b>。<code class="inline">hdfs dfs -rm</code> 相当于 Windows 的 <code class="inline">Shift + Delete</code>——执行时提示 <code class="inline">Deleted /hello.txt</code>，Web UI 里立刻消失，<code class="inline">/user/root/.Trash</code> 目录根本不生成。</p>
+
+      <p>生产环境必须开，原因一句话：<b>HDFS 上的数据往往没有别的备份，一条 rm 敲错就是事故。</b></p>
+
+      <p>开启方式是改 <code class="inline">core-site.xml</code>（注意是核心配置，不是 hdfs-site.xml）：</p>
+
+<pre class="code">&lt;property&gt;
+    &lt;name&gt;fs.trash.interval&lt;/name&gt;
+    &lt;value&gt;1440&lt;/value&gt;
+&lt;/property&gt;</pre>
+
+      <p><b>三个要点</b>：单位是<b>分钟</b>（不是秒也不是小时）；默认值 0 表示<b>关闭</b>；<code class="inline">1440</code> = 24 小时，是生产常用值（课堂演示会改成 3 分钟好看到效果）。</p>
+
+      <p>改完同样要分发 + 重启。开启后删除的提示会变：</p>
+
+<pre class="code"><span class="cm"># 开启前</span>
+Deleted /hello.txt
+
+<span class="cm"># 开启后</span>
+Moved: 'hdfs://node1:8020/hello.txt' to trash at: hdfs://node1:8020/<span class="hl">user/root/.Trash/current</span></pre>
+
+      <p><b>看到 <code class="inline">Moved</code> 就说明进回收站了，文件还在，可以救。</b>路径是 <code class="inline">/user/&lt;用户名&gt;/.Trash/current</code>，这个要背下来——出事的时候你会需要它。</p>
+
+      <h3>收尾：这一章建立的三层认知</h3>
+
+      <div class="callout ok">
+        <p><b>① 架构层</b>：两个集群（HDFS + YARN）、六个角色、每台机器该有几个进程。判断几代看有没有 YARN。</p>
+        <p><b>② 操作层</b>：六个配置文件 → format 一次 → start-dfs.sh → jps 对表 → 9870/8088 验收。出问题按"ERROR → jps → 手工启动 → 看日志"四步走。</p>
+        <p><b>③ 数据层</b>：块是逻辑切分（128 MB 上限）、副本按机架放（1 本 + 2 跨）、小文件吃 NameNode 内存、客户端走两条链路（控制面 RPC、数据面直连 DN）。</p>
+      </div>
+
+      <p class="muted small">（25~27 全篇）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c01-1" data-persist><span>能说清狭义与广义 Hadoop 的区别，三个组件（HDFS / MapReduce / YARN）各管什么（1.1）</span></label>
+        <label><input type="checkbox" id="c01-2" data-persist><span>发展史四件套记得住：Doug Cutting、Nutch、Google 三篇论文（GFS / MapReduce / BigTable）、2008 入 Apache（1.2）</span></label>
+        <label><input type="checkbox" id="c01-3" data-persist><span>三代演进讲得清：1.x 的单点在 JobTracker、2.x 用 YARN 拆成 RM + AM、3.x 组件不变只做优化；知道"看有没有 YARN 就能判断几代"（1.2 / 1.3）</span></label>
+        <label><input type="checkbox" id="c01-4" data-persist><span>能默画三台机器的角色分配（node1 四个、node2 三个、node3 两个），知道 SNN 为什么必须与 NN 分机（1.4）</span></label>
+        <label><input type="checkbox" id="c01-5" data-persist><span>六个配置文件改过一遍：说明白 <code class="inline">fs.defaultFS</code> 为什么不能写 localhost、<code class="inline">hadoop.tmp.dir</code> 不配会怎么死、workers 里的 localhost 为什么必须删（1.5）</span></label>
+        <label><input type="checkbox" id="c01-6" data-persist><span>集群能从零起起来：format 一次的判据、jps 三台 9 个进程对得上、9870 与 8088 两个页面打得开（1.6）</span></label>
+        <label><input type="checkbox" id="c01-7" data-persist><span>遇到启动失败能按四步走（ERROR → jps → 手工启 → 看日志），至少认得出 SAXParseException、Incompatible clusterIDs、Connection refused 三类报错（1.6）</span></label>
+        <label><input type="checkbox" id="c01-8" data-persist><span>HDFS 的账能算：200 MB 文件切成几个块、占多少物理空间、为什么小文件是灾难、客户端的两条链路各走哪个端口（1.7）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 01 章 · 由 27 个视频（4.1 小时）提炼 · 2026-11</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

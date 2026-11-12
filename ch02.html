@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>02 · HDFS 分布式存储 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c02">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch01.html" data-nav="c01">← 上一章</a>
+      <a href="ch02.html" data-nav="c02" class="active">第 02 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第一阶段 · Hadoop / <b>02 · HDFS 分布式存储</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <a href="ch02.html" data-nav="c02" class="active"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <div class="grp">后续章节</div>
+      <a href="index.html"><span class="no">03</span>Hive 数仓（待补）</a>
+      <a href="index.html"><span class="no">04</span>MapReduce 与 YARN（待补）</a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 09 天 · 26 个有效视频 · 3.7 小时</span>
+        <h1>02 · HDFS 分布式存储</h1>
+        <p class="sub">第 01 章你只是把 HDFS 跑起来了。这一章要回答"它为什么这么设计"——从"如果让你造一个分布式文件系统"开始，一步步推出分块、副本、主从、心跳，然后拆开写流程、读流程、元数据的落盘与合并。<b>这一章是整个 Hadoop 体系里最值得花时间的地方</b>，因为后面 Hive 的每一个慢查询、每一次数据倾斜，根子都在这里。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 09 天（26 个有效视频，另有 2 个"回顾"和 2 个"作业说明"已跳过）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>2.2 / 2.8</b> 里的时间参数与配置项以你的 <code class="inline">hadoop-3.3.0</code> 为准（不同版本默认值可能微调）；<b>2.1~2.4、2.6~2.7</b> 是原理，不受版本影响。文中标「补充」的部分是课程未展开、但工程上必需的。</span>
+        </div>
+
+        <div class="pwrap">
+          <div class="progress"><div class="fill" data-progress-bar="c02"></div></div>
+          <span class="plabel" data-progress-label="c02"></span>
+        </div>
+      </section>
+
+      <!-- ============ 2.1 ============ -->
+      <h2>2.1 如果让你设计一个分布式文件系统</h2>
+
+      <p>先别急着记 HDFS 的架构。这一节换一个角度：<b>假设有人让你从零设计一个"存得下无限数据"的文件系统，你会怎么做？</b>HDFS 的所有设计都是这条推导链的终点，理解链子比记住结论有用得多。</p>
+
+      <h3>单机为什么必然不够</h3>
+
+      <p>三个约束同时存在，而且互相叠加：</p>
+      <ol>
+        <li><b>容量有上限</b>。一块硬盘再大也有天花板，而数据是持续增长的。</li>
+        <li><b>大容量盘太贵</b>。想靠"买一块超大盘"解决问题，成本是指数上升的，而性能并不会跟着涨。</li>
+        <li><b>磁盘转速有上限</b>。单块盘的顺序读写速度锁死在物理极限上（机械盘百来 MB/s），数据量涨十倍，读一遍的时间就涨十倍。</li>
+      </ol>
+
+      <p>再加上一条容易被忽略的：<b>计算的时候还得先把数据加载进来</b>。如果数据在一台机器上，算力也只能在那一台上——加机器也帮不上忙。</p>
+
+      <div class="callout info"><b>所以结论不是"要更快"，而是"要能横向堆"。</b>把一堆普通机器串起来，让它们对外表现得像一块无限大的盘。这就是分布式文件系统（DFS）要解决的全部问题。</div>
+
+      <h3>DFS 必须回答的五个问题</h3>
+
+      <p>一旦决定"用多台机器存一个文件"，下面这些问题就躲不掉了。HDFS 的每个组件，都是在回答其中某一条：</p>
+
+      <table>
+        <thead><tr><th>问题</th><th>HDFS 的答案</th><th>代价</th></tr></thead>
+        <tbody>
+          <tr><td>一个文件怎么放到多台机器上？</td><td>切成固定大小的<b>块（block）</b></td><td>块多了要记账</td></tr>
+          <tr><td>谁记得每个块在哪？</td><td>一个<b>主节点</b>专门记元数据</td><td>主节点成了单点</td></tr>
+          <tr><td>某台机器坏了数据怎么办？</td><td>每个块存<b>多份副本</b></td><td>存储成本 ×3</td></tr>
+          <tr><td>主节点怎么知道从节点还活着？</td><td><b>心跳</b>（定期上报）</td><td>判死有延迟</td></tr>
+          <tr><td>客户端怎么拼回一个完整文件？</td><td>客户端负责组装，集群不管</td><td>客户端要能连所有节点</td></tr>
+        </tbody>
+      </table>
+
+      <h3>一步步把系统造出来</h3>
+
+      <p>课程里老师走了一条完整的构造链，每一步都是被上一步逼出来的。这条链值得完整看一眼——<b>它和具体是不是 HDFS 无关，任何"数据比机器大"的系统都在解同一组约束</b>。</p>
+
+<pre class="code">① 分角色：客户端 + 一主多从
+   服务端不做成对等集群，而是一个主 + 一群从
+        ↓
+② 主节点只存"描述"，不存"内容"
+   名字、路径、权限、大小、块列表 —— 实际数据一个字节都不放
+        ↓
+③ 立硬规矩：上传必切块
+   不管多大，进集群一律切成固定大小的块
+        ↓
+④ 上传先握手，不先传数据
+   客户端报"文件名 + 大小" → 主节点鉴权 → 通过了才允许传
+        ↓
+⑤ 按块大小切
+   256MB ÷ 128MB = 2 块（Hadoop 1.x 的 64MB 时代是 4 块）
+        ↓
+⑥ 主节点下发"放置清单"
+   按副本数 + 负载 + 网络距离，给出每块该放哪几台
+        ↓
+⑦ 客户端不记账，主节点记账
+   每块传完，主节点记下"块 X 在 node1/2/4"；客户端全程无状态
+        ↓
+⑧ 读：只问位置，就近取块，本地拼接
+   用户视角只有"上传/下载了一个文件"，切块和副本完全透明</pre>
+
+      <div class="callout ok"><b>这条链的迁移价值在于骨架：</b>先立规则 → 拆数据 → 集中记账 → 分散存放 → 就近读取 → 客户端组装。对象存储、分布式数据库分片、CDN 的缓存分布，解的都是同一组约束。<b>记住这条链，换任何一个系统你都能快速看懂它的设计。</b></div>
+
+      <h3>四大特点：每一条都是"换"来的</h3>
+
+      <p>教材上写 HDFS 有四个特点，但只列名词没意义——<b>关键是每条背后付出了什么代价</b>：</p>
+
+      <table>
+        <thead><tr><th>特点</th><th>怎么实现的</th><th>代价</th></tr></thead>
+        <tbody>
+          <tr><td><b>无限扩展</b></td><td>加机器就行，横向扩容</td><td>所有数据都要走网络，比本地磁盘慢</td></tr>
+          <tr><td><b>快速定位</b></td><td>主节点内存里存元数据，O(1) 找到块位置</td><td><b>主节点成为单点</b>，内存成为瓶颈</td></tr>
+          <tr><td><b>并行读取</b></td><td>一个文件切成多块，多台机器同时读</td><td>块数变多，元数据条目跟着变多</td></tr>
+          <tr><td><b>高容错</b></td><td>每块存 3 份副本</td><td><b>存储成本 ×3</b>，写入网络流量 ×3</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>"没有免费的午餐"在这里体现得特别清楚。</b>你看到的所有优点，都能在代价列里找到对应项；反过来，HDFS 所有的缺陷（小文件问题、单点问题、不适合低延迟），也都是这些代价的具体表现。</p>
+
+      <h3>HDFS 的边界：什么该用、什么不该用</h3>
+
+      <div class="callout warn"><b>HDFS 的定位是一句话：一次写入、多次读取的大文件存储。</b>它不是通用文件系统，把它当万能盘用会踩坑。
+        <p><b>适合</b>：单文件几百 MB 到几 TB、写一次读很多次（日志、数仓明细、备份）、能接受秒级延迟的批量分析。</p>
+        <p><b>不适合</b>：① <b>低延迟随机读</b>（HDFS 是为吞吐设计的，不是为响应时间）；② <b>大量小文件</b>（见 2.2，元数据会撑爆主节点内存）；③ <b>频繁修改</b>（HDFS 不支持随机写，只能追加或重写整个文件）；④ <b>需要多写入者并发改同一个文件</b>。</p>
+      </div>
+
+      <p class="muted small">（01~05 全篇，其中 02 是主体）</p>
+
+      <!-- ============ 2.2 ============ -->
+      <h2>2.2 架构与心跳：一主多从怎么维持</h2>
+
+      <h3>一主多从</h3>
+
+      <p>HDFS 的架构就八个字：<b>一个主节点，多个从节点</b>。</p>
+
+      <table>
+        <thead><tr><th>角色</th><th>进程</th><th>存什么</th><th>几个</th></tr></thead>
+        <tbody>
+          <tr><td><b>NameNode</b>（主）</td><td><code class="inline">NameNode</code></td><td>元数据：文件属性 + 块位置映射，<b>不存文件内容</b></td><td>1</td></tr>
+          <tr><td><b>DataNode</b>（从）</td><td><code class="inline">DataNode</code></td><td>真实的块数据，存在本地磁盘</td><td>N</td></tr>
+        </tbody>
+      </table>
+
+      <p>这个结构决定了 HDFS 全部的优缺点：主节点给了它 O(1) 的定位速度，也给了它单点故障。</p>
+
+      <h3>心跳：主节点怎么知道从节点还活着</h3>
+
+      <p>这是个必须解决的问题——如果 NameNode 不知道某台 DataNode 已经挂了，它还会把数据块往那台上写，写完才发现数据没了。</p>
+
+      <p>机制是<b>从节点主动上报</b>（心跳），不是主节点去轮询。三个时间参数要背准：</p>
+
+      <table>
+        <thead><tr><th>参数</th><th>含义</th><th>默认值</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">dfs.heartbeat.interval</code></td><td>DataNode 发心跳的间隔</td><td><b>3 秒</b></td></tr>
+          <tr><td>假死阈值</td><td>连续多久收不到就认为可疑</td><td><b>30 秒</b>（= 10 × 3 秒）</td></tr>
+          <tr><td><code class="inline">dfs.namenode.heartbeat.recheck-interval</code></td><td>进入复查后，NN 主动确认的间隔</td><td><b>5 分钟</b></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>判死三步</b>：</p>
+      <ol>
+        <li><b>正常态</b>：DN 每 3 秒发一次心跳，NN 维持存活列表。</li>
+        <li><b>假死态</b>：连续 <b>30 秒</b>（10 次心跳）没收到，NN 认为它可疑，开始每 <b>5 分钟</b>主动发确认。</li>
+        <li><b>宕机态</b>：复查 <b>2 次</b>（共 10 分钟）仍无响应，判定宕机。</li>
+      </ol>
+
+      <div class="callout warn"><b>面试口径（这段要能一口气说完）：</b>心跳 3 秒一次；30 秒收不到转"假死"；再按 5 分钟一次复查 2 次，合计 <b>10.5 分钟</b>判定宕机。注意 <b>30 秒</b>和 <b>10.5 分钟</b>是两个不同的阶段，别混成一个数。</div>
+
+      <p><b>判定宕机之后，NN 做什么？</b>两件事：</p>
+      <ul>
+        <li>该节点不再接收写入，读的时候也绕开它。</li>
+        <li><b>补副本</b>：NN 从元数据里知道这台机器上存了哪些块，于是从其他机器上已有的副本各取一份，复制到新机器上，<b>始终维持每块 3 份</b>。</li>
+      </ul>
+
+      <div class="callout info"><b>一个容易理解反的地方：</b>补副本不是"把坏机器上的数据搬出来"（机器已经挂了，搬不出来），而是<b>用其他机器上的副本再复制一份</b>放到别处。这也是为什么 3 副本能容忍 2 台同时故障。</div>
+
+      <h3>块位置信息从哪来</h3>
+
+      <p>这和后面 2.9 的安全模式直接相关，先记住：</p>
+      <ul>
+        <li><b>块位置映射只活在 NameNode 内存里，从不落盘。</b></li>
+        <li><b>集群启动时</b>：每个 DataNode 主动向 NN <b>全量汇报</b>自己持有的块。</li>
+        <li><b>运行中</b>：因为启动时已经汇报过，DN 只需<b>每 6 小时</b>汇报一次（有变化时另说）。</li>
+      </ul>
+
+      <p>为什么不落盘？因为 DN 随时上下线、磁盘随时坏，这张表天生高频变化，落盘既没意义也来不及。<b>这个设计直接催生了安全模式</b>——详见 2.9。</p>
+
+      <h3>分块与副本的实际形态</h3>
+
+      <p>第 01 章的 1.7 已经讲过块大小 128 MB 的推导和小文件问题，这里补两块视频里没展开的内容：</p>
+
+      <p><b>① 块在磁盘上长什么样。</b>一个块不是一个文件，而是<b>两个</b>：</p>
+
+<pre class="code">dfs.datanode.data.dir/current/
+├── blk_1073741825                          <span class="cm"># 数据本身</span>
+├── blk_1073741825_1001.meta                <span class="cm"># 校验和 + 版本信息</span>
+├── blk_1073741826
+└── blk_1073741826_1002.meta</pre>
+
+      <p><b><code class="inline">.meta</code> 不是副本</b>，是校验和文件（每 512 字节数据配 4 字节 CRC）。客户端读块时会校验，坏了就从别的副本重读。<b>这是"静默数据损坏"能被发现的原因。</b></p>
+
+      <p><b>② 副本不足会自动补。</b>如果某个块的副本数低于设定值，NN 会调度补齐；如果长期补不齐（可用节点不够），集群会进安全模式。<code class="inline">dfs.replication</code> 的上限是 512，但设得比节点数大没有意义。</p>
+
+      <h3>hadoop fs 与 hdfs dfs 的区别</h3>
+
+      <p>这两个命令经常被混用，但它们的作用域不同：</p>
+
+      <table>
+        <thead><tr><th>命令</th><th>作用域</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">hadoop fs</code></td><td><b>通用</b>，任何 Hadoop 支持的文件系统</td><td>靠路径前缀区分（<code class="inline">file://</code> / <code class="inline">hdfs://</code>），不写前缀就用 <code class="inline">fs.defaultFS</code></td></tr>
+          <tr><td><code class="inline">hdfs dfs</code></td><td><b>只操作 HDFS</b></td><td>专用命令，不会误操作本地文件</td></tr>
+          <tr><td><s><code class="inline">hadoop dfs</code></s></td><td>—</td><td><b>已废弃</b>，看到教程里用它说明那份教程很老</td></tr>
+        </tbody>
+      </table>
+
+      <p>所以 <code class="inline">hadoop fs -ls /</code> 看到的是 HDFS 的根目录而不是本机的 <code class="inline">/</code>——因为 <code class="inline">fs.defaultFS</code> 指向了 <code class="inline">hdfs://node1:8020</code>。想操作本机就写 <code class="inline">hadoop fs -ls file:///</code>。</p>
+
+      <p class="muted small">（06~10 全篇）</p>
+
+      <!-- ============ 2.3 ============ -->
+      <h2>2.3 元数据与实际数据：两条完全分开的存储线</h2>
+
+      <p>这一节只有一句话，但它是理解 HDFS 性能特征和容量规划的钥匙：</p>
+
+      <div class="callout ok"><b>NameNode 存"描述"，DataNode 存"内容"。两者用的是完全不同的存储介质——NN 用内存，DN 用磁盘。</b></div>
+
+      <h3>NameNode 内存里到底有什么</h3>
+
+      <p>拆到字段级看，两类东西：</p>
+
+      <table>
+        <thead><tr><th>类别</th><th>具体内容</th><th>大小</th></tr></thead>
+        <tbody>
+          <tr><td><b>文件属性</b>（inode）</td><td>文件名、路径、权限、owner、大小、创建/修改时间、<b>块列表</b></td><td>约 150 字节</td></tr>
+          <tr><td><b>块位置映射</b>（blocksMap）</td><td>每个块：block id、长度、在哪些 DataNode 上</td><td>约 150 字节/块</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>不包含的：文件内容。</b>一个字节都没有。</p>
+
+      <p>所以"元数据约 150 字节/文件"这个经验值的来源就清楚了——它只算描述信息，跟文件多大完全无关。<b>一个 1 KB 的文件和一个 1 TB 的文件，在 NameNode 里占的内存是一样的。</b></p>
+
+      <div class="callout warn"><b>这就是小文件问题的数学本质。</b>NameNode 的堆内存有限（默认几 GB），能装的元数据条目数是固定的。100 万个文件就要 150 MB 常驻内存，1 亿个就要 15 GB——<b>和这些文件总共多大毫无关系，只看有多少个</b>。所以 HDFS 存 1 万个 100 MB 的文件毫无压力，存 100 万个 1 KB 的文件会直接把 NN 撑死。</div>
+
+      <h3>为什么会设计成这样</h3>
+
+      <p>三个理由，都指向同一个方向——<b>把便宜的东西用来装海量数据，把贵的东西用来装索引</b>：</p>
+      <ul>
+        <li><b>内存快</b>：定位一个块是 O(1) 的内存查找，不用查磁盘索引。这是 HDFS"元数据操作快"的来源。</li>
+        <li><b>数据可以无限扩</b>：DN 加机器就行，因为数据不占 NN 的内存。</li>
+        <li><b>职责单一</b>：NN 只管目录树和映射，DN 只管存块，各自可以独立优化。</li>
+      </ul>
+
+      <p>代价也在这里：<b>NN 成了整个集群的内存瓶颈和单点</b>。后面 2.8、2.9 所有的复杂度（fsimage、edits、checkpoint、安全模式），都是为了保护这个单点。</p>
+
+      <p class="muted small">（09 全篇；块文件形态为补充）</p>
+
+      <!-- ============ 2.4 ============ -->
+      <h2>2.4 三大角色与副本摆放</h2>
+
+      <h3>三个角色，一个容易被误解</h3>
+
+      <table>
+        <thead><tr><th>角色</th><th>职责</th><th>常见误解</th></tr></thead>
+        <tbody>
+          <tr><td><b>NameNode</b></td><td>管元数据、管目录树、管块位置映射，对外提供 RPC</td><td>以为它存数据</td></tr>
+          <tr><td><b>DataNode</b></td><td>存真实块、发心跳、发块汇报、执行读写</td><td>以为它知道文件叫什么</td></tr>
+          <tr><td><b>SecondaryNameNode</b></td><td><b>辅助合并</b> fsimage 与 edits，做 checkpoint</td><td><b>以为它是 NN 的备机</b></td></tr>
+        </tbody>
+      </table>
+
+      <p>第三个误解要单独说：<b>SNN 不是备份，也不能顶替 NN。</b>它只做一件事——定期把 NN 的编辑日志合并进镜像，减轻 NN 重启时的负担。NN 挂了用它恢复会<b>丢掉最后一个 checkpoint 周期的所有操作</b>。原因在 2.8 详说。</p>
+
+      <h3>副本摆放：机架感知</h3>
+
+      <p>3 副本不是随便找三台机器扔上去。真实集群是多机架的，策略是：</p>
+
+      <table>
+        <thead><tr><th>第几份</th><th>放在哪</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td><b>第 1 份</b></td><td>客户端所在节点（客户端在集群外就随机挑一台不忙的）</td><td>写入最快，不用跨网络</td></tr>
+          <tr><td><b>第 2 份</b></td><td><b>不同机架</b>的随机节点</td><td>机架级故障（交换机挂、机柜断电）不会全丢</td></tr>
+          <tr><td><b>第 3 份</b></td><td>与第 2 份<b>同机架</b>的另一台</td><td>跨机架带宽稀缺，能省则省</td></tr>
+        </tbody>
+      </table>
+
+      <p>也就是 <b>1 份本机架 + 2 份跨机架</b>。两个"为什么不"值得记：</p>
+      <ul>
+        <li><b>为什么三份不全放本机架</b>：机架断电三份全丢，容错等于 0。</li>
+        <li><b>为什么三份不全跨机架</b>：写 1 份数据会放大成 3 倍跨机架流量，把交换机带宽打满。而且读的时候跨机架延迟高。</li>
+      </ul>
+
+      <div class="callout info"><b>我们那个三台机器的小集群为什么看不出这个策略？</b>因为三台通常在同一个机架、甚至没配机架拓扑，策略退化成"三台各一份"。想在实验环境模拟机架感知，得在 <code class="inline">topology.script.file.name</code> 里配置拓扑脚本——知道有这回事就行，不必真做。</div>
+
+      <p class="muted small">（14、15 两集；机架拓扑配置为补充）</p>
+
+      <!-- ============ 2.5 ============ -->
+      <h2>2.5 Shell 命令全解</h2>
+
+      <p>先分清三个入口，这是最容易一开始就走错的地方：</p>
+
+      <table>
+        <thead><tr><th>命令</th><th>状态</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">hdfs dfs</code></td><td><b>推荐</b></td><td>HDFS 专用，不会误伤本地文件</td></tr>
+          <tr><td><code class="inline">hadoop fs</code></td><td>可用</td><td>通用，能操作多种文件系统，靠前缀区分</td></tr>
+          <tr><td><s><code class="inline">hadoop dfs</code></s></td><td><b>已废弃</b></td><td>看到教程里用它，说明那份教程很老</td></tr>
+        </tbody>
+      </table>
+
+      <h3>目录操作</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>作用</th><th>注意</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-ls /</code></td><td>列目录</td><td><b>目录大小恒为 0 是正常的</b>，HDFS 目录只是元数据节点</td></tr>
+          <tr><td><code class="inline">-ls -h /</code></td><td>带单位显示</td><td>小于 1KB 时不带单位，看着像没生效，其实对了</td></tr>
+          <tr><td><code class="inline">-ls -R /dir</code></td><td>递归列出</td><td>大目录慎用，输出会刷屏</td></tr>
+          <tr><td><code class="inline">-mkdir /a</code></td><td>建单层目录</td><td>父目录不存在直接失败</td></tr>
+          <tr><td><code class="inline">-mkdir -p /a/b/c</code></td><td>递归建目录</td><td>日常都用这个</td></tr>
+        </tbody>
+      </table>
+
+      <h3>上传与下载</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>方向</th><th>关键差异</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-put</code></td><td>本地 → HDFS</td><td><b>同名静默覆盖，没有任何提示</b></td></tr>
+          <tr><td><code class="inline">-copyFromLocal</code></td><td>本地 → HDFS</td><td>与 <code class="inline">-put</code> 等价，但<b>只认本地路径</b>，语义更明确</td></tr>
+          <tr><td><code class="inline">-moveFromLocal</code></td><td>本地 → HDFS</td><td>上传后<b>删除本地源文件</b>（剪切式）</td></tr>
+          <tr><td><code class="inline">-get</code></td><td>HDFS → 本地</td><td><b>本地同名文件已存在时默认报错</b>，要 <code class="inline">-f</code> 才覆盖</td></tr>
+          <tr><td><code class="inline">-copyToLocal</code></td><td>HDFS → 本地</td><td>与 <code class="inline">-get</code> 等价</td></tr>
+          <tr><td><code class="inline">-getmerge /dir ./all.txt</code></td><td>HDFS → 本地</td><td>把目录下多个文件<b>合并成一个</b>下载</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>这里有个"反向严格度"的坑，正好相反：</b>
+        <p><code class="inline">-put</code> 上传时同名文件<b>静默覆盖</b>，不问你；而 <code class="inline">-get</code> 下载时本地同名文件<b>默认报错</b>，要加 <code class="inline">-f</code>。</p>
+        <p>所以批量上传前最好先 <code class="inline">-ls</code> 确认，<b>一次误覆盖在 HDFS 上是找不回来的</b>（除非开了回收站，见第 01 章 1.8）。</p>
+      </div>
+
+      <p>还有一个路径的坑：<code class="inline">-put hello.txt /itcast</code>（不带结尾斜杠）且 <code class="inline">/itcast</code> 不存在时，会被当成"重命名成 /itcast 这个文件"，而不是"放进 /itcast 目录"。<b>想放进目录就写 <code class="inline">/itcast/</code></b>。</p>
+
+      <h3>查看内容</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>作用</th><th>注意</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-cat /f</code></td><td>看全文</td><td>大文件别用，会把终端刷爆</td></tr>
+          <tr><td><code class="inline">-head /f</code></td><td>看开头</td><td><b>单位是 1KB，不是"前 10 行"</b></td></tr>
+          <tr><td><code class="inline">-tail /f</code></td><td>看结尾</td><td>同上，按字节不按行</td></tr>
+          <tr><td><code class="inline">-tail -f /f</code></td><td>持续跟踪</td><td>看日志增长用</td></tr>
+          <tr><td><code class="inline">-text /f</code></td><td>自动解压看</td><td>支持 gz / bz2 等压缩格式</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b><code class="inline">-head</code> 和 <code class="inline">-tail</code> 的单位是 KB，不是行。</b>课程里演示一个不到 1KB 的文件，一执行就把全文打出来了，很多人以为命令坏了。<b>它跟 Linux 的同名命令行为不一样</b>，这是最容易误判的一个点。</div>
+
+      <h3>删除、移动、权限</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>作用</th><th>注意</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-rm /f</code></td><td>删文件</td><td>删目录要加 <code class="inline">-r</code>，否则报错</td></tr>
+          <tr><td><code class="inline">-rm -r /dir</code></td><td>递归删</td><td><b>危险操作</b>，没开回收站就是真删</td></tr>
+          <tr><td><code class="inline">-mv /a /b</code></td><td>移动/改名</td><td><b>只改元数据，秒完成</b>，不搬数据</td></tr>
+          <tr><td><code class="inline">-cp /a /b</code></td><td>复制</td><td><b>真的拷贝数据</b>，大文件会很慢</td></tr>
+          <tr><td><code class="inline">-chmod -R 755 /dir</code></td><td>改权限</td><td>语法同 Linux</td></tr>
+          <tr><td><code class="inline">-chown user:group /f</code></td><td>改属主</td><td>需要超级用户</td></tr>
+        </tbody>
+      </table>
+
+      <p><b><code class="inline">-mv</code> 和 <code class="inline">-cp</code> 的差别值得单独记</b>：移动只改元数据（NameNode 里的路径映射），几 TB 的数据也是一瞬间；复制是真的读一遍写一遍。所以"整理目录"用 <code class="inline">-mv</code> 不要用 <code class="inline">-cp</code>。</p>
+
+      <h3>统计与其他</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>作用</th><th>注意</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-du -h /dir</code></td><td><b>文件/目录占多少空间</b></td><td>和 <code class="inline">-df</code> 不是一回事</td></tr>
+          <tr><td><code class="inline">-df -h</code></td><td><b>集群总容量与剩余</b></td><td>看的是整个 HDFS</td></tr>
+          <tr><td><code class="inline">-setrep -w 2 /f</code></td><td>改副本数并等待</td><td><code class="inline">-R</code> 递归</td></tr>
+          <tr><td><code class="inline">-expunge</code></td><td>清空回收站</td><td>只对当前用户</td></tr>
+          <tr><td><code class="inline">-stat /f</code></td><td>看文件元数据</td><td>能看块大小、副本数、修改时间</td></tr>
+        </tbody>
+      </table>
+
+      <p><b><code class="inline">-df</code> 与 <code class="inline">-du</code> 别混</b>：<code class="inline">-df -h</code> 回答"集群还剩多少"，<code class="inline">-du -h /dir</code> 回答"这个目录占了多大"。排查"空间不够"时，先用 <code class="inline">-df</code> 看总量，再用 <code class="inline">-du</code> 逐层定位是谁占的。</p>
+
+      <h3>不常用但救命</h3>
+
+      <table>
+        <thead><tr><th>命令</th><th>什么时候用</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">-appendToFile local.txt /f</code></td><td>往已有文件追加内容（目标不存在会自动创建）</td></tr>
+          <tr><td><code class="inline">-getmerge /dir ./merged.txt</code></td><td>把 MR 输出目录（一堆 part-r-00000）合成一个文件看</td></tr>
+          <tr><td><code class="inline">hdfs fsck / -files -blocks</code></td><td>检查块完整性，看有没有丢块、副本不足</td></tr>
+          <tr><td><code class="inline">hdfs dfsadmin -report</code></td><td>看集群概况：几个 DN、容量、使用率、活着的节点</td></tr>
+          <tr><td><code class="inline">hdfs balancer</code></td><td>数据不均衡时手动触发均衡（加机器之后常做）</td></tr>
+        </tbody>
+      </table>
+
+      <p class="muted small">（11~13 全篇）</p>
+
+      <!-- ============ 2.6 ============ -->
+      <h2>2.6 写数据流程：七步链与 pipeline</h2>
+
+      <div class="callout info"><b>老师原话：写流程和读流程是面试问得最多的两块。</b>建议先理解再背——七步链背后是一条"为什么要这么绕"的逻辑，硬背容易忘。</div>
+
+      <h3>七步链</h3>
+
+<pre class="code">① 客户端请求  →  ② NN 校验并返回 DN 列表  →  ③ 客户端建 pipeline
+      →  ④ DN 逐级建 pipeline 并回 ack  →  ⑤ 客户端按 packet 发送
+      →  ⑥ packet 沿 pipeline 下传、ack 逐级回传
+      →  ⑦ 全部完成，关闭 pipeline，NN 落元数据</pre>
+
+      <table>
+        <thead><tr><th>步骤</th><th>谁发给谁</th><th>发什么</th><th>失败会怎样</th></tr></thead>
+        <tbody>
+          <tr><td><b>① 请求</b></td><td>客户端 → NameNode（8020）</td><td>"我要写 /abc.avi"的 create 请求</td><td>连不上 NN，整个写操作直接失败</td></tr>
+          <tr><td><b>② 校验并返回</b></td><td>NN → 客户端</td><td>校验<b>权限</b>和<b>是否重名</b>，通过后回"可以传"；再按副本数 + 负载 + 网络距离给出 DN 列表</td><td>权限不足或重名直接报错；可用 DN 不足时抛 <code class="inline">could only be replicated to 0 nodes</code></td></tr>
+          <tr><td><b>③ 建 pipeline</b></td><td>客户端 → DN1 → DN2 → DN3</td><td>串成一条传输通道</td><td>某台连不上就跳过它、用剩余节点重建</td></tr>
+          <tr><td><b>④ 逐级回 ack</b></td><td>DN3 → DN2 → DN1 → 客户端</td><td><b>"管道建好了"的信号</b>（不是数据确认）</td><td>任一跳失败，ack 带失败状态回传，重建</td></tr>
+          <tr><td><b>⑤ 发 packet</b></td><td>客户端 → DN1</td><td>块切成 packet（默认 <b>64 KB</b>），<b>只发给第一台</b></td><td>—</td></tr>
+          <tr><td><b>⑥ 下传 + 回传</b></td><td>DN1→DN2→DN3；ack 反着回来</td><td><b>串行</b>，不是同时发三份</td><td>见下面的故障处理</td></tr>
+          <tr><td><b>⑦ 收尾</b></td><td>客户端 → NN</td><td>关闭 pipeline，提交；NN 记入 <b>edits log</b></td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>三个容易漏的细节</b>：</p>
+      <ul>
+        <li><b>不是整个文件一次传，是逐块处理。</b>每写完一块，都要<b>回到第 ② 步重新要一次 DN 列表</b>——因为集群状态可能变了。</li>
+        <li><b>一个 packet 走完"下发 + ack 回来"一整圈，才发下一个。</b>这是串行的，不是流水线并发。</li>
+        <li><b>ack 里带的是状态码和 seqno，不是校验和。</b>校验和是随 packet <b>正向下发</b>的，DN 收到后用本地副本校验。</li>
+      </ul>
+
+      <h3>pipeline 与 ack：为什么要串成一条链</h3>
+
+      <p>直觉上"客户端同时发给三台 DN"似乎更快，但 HDFS 偏偏选了<b>串行传</b>。原因：</p>
+
+      <ul>
+        <li><b>省带宽。</b>如果客户端同时发三份，客户端出口带宽要 ×3，而且三台机器各占一份。串行下传时，客户端只出一份流量，DN1 转给 DN2、DN2 转给 DN3，每台机器只多一份出口。</li>
+        <li><b>能快速发现故障。</b>任何一跳失败，ack 反向传回客户端，客户端立刻知道该重建。</li>
+        <li><b>数据流是流水式的。</b>DN1 收到 packet 就转发，不必等整块收完——所以实际吞吐不会因为是串行而变成 1/3。</li>
+      </ul>
+
+      <p><b>pipeline 中途某个 DN 挂了会怎样</b>（这是本节的精华）：</p>
+      <ol>
+        <li>ack 带着失败的 DN 信息回传，客户端<b>剔除坏节点</b>。</li>
+        <li>用剩下的节点<b>重建 pipeline</b>。</li>
+        <li><b>从断点续传</b>——已经确认的 packet 不重传。</li>
+        <li>NN 在后台<b>补副本</b>，把副本数补回 3。<b>block ID 保持不变。</b></li>
+      </ol>
+
+      <div class="callout ok"><b>为什么这套设计能成立：</b>块是写死的（block ID 不变），副本只是"这个块的几份拷贝"，所以丢一份补一份，对上层完全透明。<b>这是"用冗余换可用性"最标准的实现。</b></div>
+
+      <p class="muted small">（16、17 两集；packet 与 chunk 的细节为补充）</p>
+
+      <!-- ============ 2.7 ============ -->
+      <h2>2.7 读数据流程与辅助工具</h2>
+
+      <h3>读：和写对照着看最清楚</h3>
+
+<pre class="code">写：客户端 → NN 要位置 → 建 pipeline → 串行下发 → 逐级 ack → 落元数据
+读：客户端 → NN 要位置 → 直连最近的 DN 读 → 校验 → 本地拼接</pre>
+
+      <p><b>读比写简单得多，只因为一个事实：读不需要把一份变成三份。</b></p>
+
+      <table>
+        <thead><tr><th>对比项</th><th>写</th><th>读</th></tr></thead>
+        <tbody>
+          <tr><td>数据流向</td><td>一份 → 三份（pipeline 串行下传）</td><td>一份 → 一份（直连某台 DN）</td></tr>
+          <tr><td>要不要 pipeline</td><td><b>要</b></td><td><b>不要</b></td></tr>
+          <tr><td>要不要 ack</td><td><b>要</b>（逐级回传）</td><td><b>不要</b>，靠校验和验证</td></tr>
+          <tr><td>块之间</td><td>串行（写完一块再要下一块的位置）</td><td><b>可以并行</b>（块之间没依赖）</td></tr>
+          <tr><td>失败处理</td><td>剔除节点、重建 pipeline、断点续传</td><td><b>换一个副本重读</b></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>读流程五步</b>：</p>
+      <ol>
+        <li>客户端问 NN："<code class="inline">/abc.avi</code> 怎么读？"</li>
+        <li>NN 只回<b>位置</b>——每一块在哪些 DN 上（不含数据）。</li>
+        <li>客户端从每块的副本集合里，<b>挑离自己最近的一台</b>读（按网络拓扑算距离，同机架 &gt; 同机房 &gt; 跨机房）。</li>
+        <li>读完一块，读下一块（多块可以并行读）。</li>
+        <li>客户端在本地把块<b>拼回</b>完整文件。</li>
+      </ol>
+
+      <p><b>"就近读"是怎么实现的</b>：NN 返回的 DN 列表是按网络距离排好序的，客户端按顺序取第一个能连上的。这就是机架感知在读侧的作用——<b>写的时候按机架放，读的时候按机架取</b>。</p>
+
+      <h3>辅助工具：HAR 归档与小文件治理</h3>
+
+      <p>课程在辅助工具那节花的时间最多的是 <b>HAR 归档</b>，因为它直接对应 HDFS 最大的痛点——小文件。</p>
+
+      <p><b>HAR（Hadoop Archive）</b> 把一堆小文件打包成一个 <code class="inline">.har</code> 文件，<b>对 NameNode 只呈现为一个文件</b>，元数据开销从 N 份降到 1 份，但内部仍能按原路径访问：</p>
+
+<pre class="code"><span class="cm"># 打包：把 /small 下的小文件归档成 /out.har</span>
+hadoop archive -archiveName out.har -p /small /output
+
+<span class="cm"># 访问：路径要加 har:// 前缀，内部仍按原目录结构</span>
+hdfs dfs -ls har:///output/out.har
+hdfs dfs -cat har:///output/out.har/a.txt</pre>
+
+      <p><b>三个限制要知道</b>：不压缩（体积不减小）、<b>不可修改</b>（归档后只能读）、<b>不会删除原文件</b>（要手动删）。所以 HAR 是"治标"——把元数据压力降下来，但数据本身还是那么多份。</p>
+
+      <div class="callout info"><b>小文件治理的正确顺序</b>：① 源头合并（别产生小文件）→ ② 用容器格式打包（ORC / Parquet，一个文件装一批数据）→ ③ HAR 归档（历史数据）→ ④ 实在不行上 Federation（加法分摊压力）。<b>HAR 排在第三，不要一上来就用它。</b></div>
+
+      <h3>其他值得知道的工具</h3>
+
+      <table>
+        <thead><tr><th>工具</th><th>解决什么</th><th>一条典型命令</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">fsck</code></td><td>检查块完整性、副本是否不足、有没有丢块</td><td><code class="inline">hdfs fsck / -files -blocks</code></td></tr>
+          <tr><td><code class="inline">dfsadmin -report</code></td><td>集群概况：节点数、容量、使用率</td><td><code class="inline">hdfs dfsadmin -report</code></td></tr>
+          <tr><td><code class="inline">balancer</code></td><td>数据不均衡（加机器后必做）</td><td><code class="inline">hdfs balancer -threshold 10</code></td></tr>
+          <tr><td><code class="inline">distcp</code></td><td>跨集群复制（走 MR 作业，能并行）</td><td><code class="inline">hadoop distcp hdfs://a/x hdfs://b/y</code></td></tr>
+          <tr><td><code class="inline">snapshot</code></td><td>目录级快照，误删后能回滚</td><td><code class="inline">hdfs dfs -createSnapshot /data snap1</code></td></tr>
+        </tbody>
+      </table>
+
+      <p><b><code class="inline">-cp</code> 与 <code class="inline">distcp</code> 别混</b>：同集群内复制用 <code class="inline">-cp</code>（走客户端，慢）；跨集群或大数据量用 <code class="inline">distcp</code>（走 MapReduce，并行，快）。</p>
+
+      <p class="muted small">（20、21 两集；fsck / balancer / snapshot 等为补充，课程只详讲了 HAR）</p>
+
+      <!-- ============ 2.8 ============ -->
+      <h2>2.8 元数据怎么落盘：fsimage、edits 与 checkpoint</h2>
+
+      <p>这一节是全章最抽象的部分，但抓住一个等式就能全串起来：</p>
+
+      <div class="callout ok"><b>NameNode 启动 = 加载 fsimage + 重放 edits log</b>
+        <p>把这个等式想通，后面所有问题（为什么要合并、为什么要滚动、SNN 为什么存在）都是它的推论。</p>
+      </div>
+
+      <h3>两个文件的分工</h3>
+
+      <table>
+        <thead><tr><th></th><th>fsimage</th><th>edits log</th></tr></thead>
+        <tbody>
+          <tr><td>是什么</td><td><b>某一时刻的完整元数据快照</b></td><td><b>自上次快照以来的所有写操作流水</b></td></tr>
+          <tr><td>特点</td><td>大、全、不常变</td><td>小、增量、一直在追加</td></tr>
+          <tr><td>怎么产生</td><td>format 时生成，之后由 checkpoint 更新</td><td>每次客户端增删改都追加一条</td></tr>
+          <tr><td>保留几个</td><td>默认 2 个</td><td>按小时切分，攒一批</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>两个直接的推论</b>：</p>
+      <ul>
+        <li><b>edits 必须切割。</b>不能一个文件写到底，否则单文件无限增长，加载时也慢。</li>
+        <li><b>edits 必须合并。</b>只增不减的话，重启时要重放几百万条操作，可能几分钟到几小时起不来。</li>
+      </ul>
+
+      <h3>一个容易忽略的细节：inprogress</h3>
+
+      <p>你去看 <code class="inline">dfs/name/current/</code>，会看到两类文件名：</p>
+
+<pre class="code">edits_0000000000000000001            <span class="cm"># 已定稿的历史</span>
+edits_inprogress_0000000000000000002 <span class="cm"># 正在写的那个</span></pre>
+
+      <p><b>带 <code class="inline">inprogress</code> 的是"正在写"的草稿，不带的是"已封口"的定稿。</b>这个区别在 checkpoint 里是关键——只有封口的文件才能被安全地拉走合并。</p>
+
+      <h3>checkpoint：九步流程</h3>
+
+      <p>先看 NN 的日常（不涉及 SNN 时）：</p>
+      <ol>
+        <li><b>NN 启动</b> → 加载 fsimage 到内存 → 重放 edits → 得到最新元数据。</li>
+        <li><b>客户端增删改</b> → 先改<b>内存</b> → 同时追加写入 <code class="inline">edits_inprogress_001</code>。</li>
+        <li><b>触发滚动（roll）</b> → 把 001 定稿成正式文件，<b>另开</b> 002，此后新操作全写 002。</li>
+      </ol>
+
+      <p>然后是 checkpoint 主流程：</p>
+
+<pre class="code">① SNN 每 60 秒问 NN：到 checkpoint 条件了吗？
+        ↓ 达到（1 小时 或 100 万条）
+② SNN 通知 NN：滚动 edits
+   NN 把 inprogress_001 定稿 → 新开 inprogress_002
+   （从现在起新操作写 002，001 冻结不再变）
+        ↓
+③ SNN 通过网络拉取【旧的 edits_001】+【当前 fsimage】
+        ↓
+④ SNN 把这两个文件加载进【自己的内存】
+        ↓
+⑤ 在 SNN 内存中合并：fsimage + 重放 edits_001
+        ↓
+⑥ 产出新镜像 fsimage.checkpoint
+        ↓
+⑦ SNN 把新镜像推回 NN
+        ↓
+⑧ NN 用新镜像【覆盖】旧的 fsimage
+        ↓
+⑨ 本轮结束：edits_001 作废，只留 002 继续追加 —— 回到 ①</pre>
+
+      <p><b>压缩成一句话背</b>：SNN 到点 → 让 NN 滚动 edits（开新文件）→ 拉旧的 edits + 当前 fsimage 到本地 → 内存合并 → 生成新镜像 → 推回 NN → NN 覆盖旧 fsimage → 老的 edits 退休、新的接着写。</p>
+
+      <h3>三个极易讲漏的细节</h3>
+
+      <div class="callout warn">
+        <p><b>① 滚动必须发生在拉取之前，顺序不能颠倒。</b>不先冻结 001，SNN 拉下来的文件在传输过程中还在被写，合并结果就不一致（会漏记录或读到半条记录）。</p>
+        <p><b>② 合并期间集群照常读写。</b>001 已封口、002 是活的，客户端操作全进 002，业务不中断。001 的内容最终进 fsimage，002 留到下一轮。</p>
+        <p><b>③ 合并在内存里做，所以 SNN 也要大内存。</b>这就是"NN 和 SNN 都吃内存"的原因，也是为什么它们不能同机部署。</p>
+      </div>
+
+      <h3>为什么必须由 SNN 做，而不是 NN</h3>
+
+      <p>这是本节最值钱的一句判断：</p>
+
+      <p>合并本质是"<b>把大量数据在内存和磁盘之间搬 + 重放海量日志</b>"，非常消耗 CPU、内存和 IO。而 NameNode 本来就要扛三件事：集群管理、元数据管理、响应客户端请求。<b>再压一个合并上去，会拖慢正常服务</b>——合并期间请求响应变慢甚至卡顿。</p>
+
+      <div class="callout ok"><b>所以引入 SNN 的逻辑不是"NN 做不了"，而是"架构上故意不让它做"——把周期性重活从关键路径上挪走。</b>这是 SNN 存在的全部意义，也是分布式系统里一个通用手法：<b>把重活从关键路径上剥离，交给一个可以落后的副本。</b></div>
+
+      <h3>为什么 SNN 不能替代 NN</h3>
+
+      <p><b>因为它只有"旧的"数据。</b>SNN 手上是上一轮 checkpoint 之后的 fsimage + 已封口的 edits，而<b>最新那一小时（或那 100 万条）的操作还在 NN 的 <code class="inline">edits_inprogress_002</code> 里，SNN 没有</b>。</p>
+
+      <p>所以用 SNN 恢复，<b>必然丢掉最后一个 checkpoint 周期的所有写操作</b>。它的定位是"辅助"，不是"备机"。</p>
+
+      <p class="muted small">（23~25 三集；SNN 不能替代 NN 的推论为补充）</p>
+
+      <!-- ============ 2.9 ============ -->
+      <h2>2.9 安全模式与 NameNode 故障恢复</h2>
+
+      <h3>安全模式：为什么会进、进去能干什么</h3>
+
+      <p><b>三种进入方式</b>：</p>
+      <ol>
+        <li><b>副本率不达标</b>（自动触发，最常见）。默认要 3 副本，某些块副本不足且补不回来（DN 挂了、可用节点不够），集群认为自己不健康。</li>
+        <li><b>NameNode 启动时</b>。刚起来时内存里还没有"块在哪台 DN 上"的信息，必须等汇报完才敢对外提供写服务。</li>
+        <li><b>人为进入</b>。维护、升级前冻结写入。</li>
+      </ol>
+
+      <p><b>进去之后：只读。不能写、不能删、不能改副本。</b></p>
+
+      <table>
+        <thead><tr><th>操作</th><th>安全模式下</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">ls</code> / <code class="inline">cat</code> / <code class="inline">get</code></td><td>可以，读完全不受影响</td></tr>
+          <tr><td><code class="inline">put</code> / <code class="inline">mkdir</code> / <code class="inline">rm</code> / <code class="inline">setrep</code></td><td><b>全部拒绝</b>——它们都要写元数据</td></tr>
+        </tbody>
+      </table>
+
+      <p>报错长这样，看到 <code class="inline">._COPYING_</code> 就知道卡在第一步：</p>
+
+<pre class="code">put: Cannot create file/user/root/safemode.txt._COPYING_.
+NameNode is in safe mode.</pre>
+
+      <p><b>常用命令</b>：</p>
+
+<pre class="code">hdfs dfsadmin -safemode get         <span class="cm"># 查状态 ON / OFF</span>
+hdfs dfsadmin -safemode enter       <span class="cm"># 手动进入（维护前）</span>
+hdfs dfsadmin -safemode leave       <span class="cm"># 退出</span>
+hdfs dfsadmin -safemode wait        <span class="cm"># 阻塞等待，直到自己退出（写脚本时好用）</span></pre>
+
+      <div class="callout warn"><b>一个坑：<code class="inline">-safemode enter</code> 之后你自己也写不进去了</b>，包括你原本想做的修复操作。维护完记得 <code class="inline">leave</code>。而如果是被自动触发的，<code class="inline">leave</code> 之后如果副本率还是不够，<b>它会自己再进去</b>——这时候该修的是 DN，不是反复敲 leave。</div>
+
+      <h3>安全模式存在的根本原因：块汇报</h3>
+
+      <p>这层因果链值得完整看一遍，它解释了"为什么重启大集群要等那么久"：</p>
+
+<pre class="code">fsimage 里存的：文件 → 由哪些块组成（block id、大小、副本数）
+fsimage 里没有的：这些块现在到底躺在哪台 DataNode 上</pre>
+
+      <p><b>"块 → DataNode"这张映射表只活在 NameNode 内存里，从不落盘。</b>原因很现实：DN 随时上下线、磁盘随时坏，这张表天生高频变化，落盘既没意义也来不及。</p>
+
+      <p>那么 NN 重启会发生什么：</p>
+      <ol>
+        <li>加载 fsimage + 重放 edits → 知道"有哪些文件、由哪些块组成"。</li>
+        <li>但<b>不知道这些块现在在哪</b>，手上一堆 block id，无处可寻。</li>
+        <li>于是进入<b>安全模式</b>，等所有 DN 主动发来<b>块汇报</b>——"我这台机器上现在有这些块"。</li>
+        <li>NN 收到汇报后重建映射；当一个块凑齐最小副本数，就标记为"安全"。</li>
+        <li>当"安全块"比例达到阈值（<code class="inline">dfs.namenode.safemode.threshold-pct</code>，默认 <b>0.999</b>），才退出安全模式。</li>
+      </ol>
+
+      <div class="callout ok"><b>所以安全模式的本质不是"限制你写入"，而是"我还没搞清楚数据在哪，先别让我改"。</b>如果这时候放开写，NN 可能把新副本调度到错误位置、或误判某块只剩 1 份而疯狂复制——那才是真正的数据灾难。<b>大集群重启要等很久，就是在等块汇报收齐</b>，日志里 <code class="inline">Waiting for blocks reports. 0 blocks reported</code> 就是在干这个。</div>
+
+      <h3>NameNode 挂了怎么恢复</h3>
+
+      <p>先说清楚为什么 NN 挂了整个集群就废了：<b>元数据全在它内存里，没有它就没法把块拼成文件</b>。数据块还躺在 DN 磁盘上，但没人知道它们属于哪个文件。</p>
+
+      <table>
+        <thead><tr><th>路线</th><th>做法</th><th>代价</th></tr></thead>
+        <tbody>
+          <tr><td><b>① 用 SNN 恢复</b></td><td>把 <code class="inline">dfs/namesecondary/current</code> 下的文件 scp 回 NN 的 <code class="inline">dfs/name/current</code></td><td><b>丢最后一个 checkpoint 周期的操作</b>（约 1 小时）</td></tr>
+          <tr><td><b>② 用目录备份</b></td><td>提前给 <code class="inline">dfs/name</code> 配多份（<code class="inline">dfs.namenode.name.dir</code> 写多个路径）</td><td>要提前规划，事后无效</td></tr>
+          <tr><td><b>③ HA 双 NN</b></td><td>两个 NN（Active + Standby）+ JournalNode 共享 edits，自动切换</td><td>机器成本 ×2，配置复杂——<b>但这是生产唯一正确做法</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>用路线 ① 时有个坑：拷贝前必须清空 <code class="inline">dfs/name/current</code>。</b>残留的旧 edits 会导致事务号不连续，NN 拒绝启动。而且恢复出来的数据是"上一个 checkpoint 时刻"的，之后的写操作全丢——<b>这就是为什么生产环境不能靠 SNN 兜底</b>。</div>
+
+      <p><b>课程只讲了路线 ① 和 ②，HA 只是点到。</b>但你要知道：<b>真正上生产，必须做 HA。</b>否则 NN 一挂，整个数据平台的可用性就归零了。这块内容在后面的"Zookeeper 与高可用"那章会正式展开。</p>
+
+      <h3>这一章的收尾：三句话</h3>
+
+      <div class="callout ok">
+        <p><b>① 存储分两条线</b>：NN 用内存存描述（150 字节/文件），DN 用磁盘存内容。小文件问题的根在这里。</p>
+        <p><b>② 写入靠 pipeline 串行复制</b>，读取靠就近直连。读写不对称，因为读不用把一份变三份。</p>
+        <p><b>③ 元数据的持久化靠 fsimage + edits</b>，合并的活交给 SNN 干，因为不能让重活拖慢 NN。<b>而块位置不落盘，才有了安全模式。</b></p>
+      </div>
+
+      <p class="muted small">（26~28 三集；HA 与实际恢复命令为补充）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c02-1" data-persist><span>能从"单机存不下"推导出 DFS 的五个必答题（切块 / 谁记账 / 副本 / 心跳 / 谁拼装），并说清四大特点各自付出了什么代价（2.1）</span></label>
+        <label><input type="checkbox" id="c02-2" data-persist><span>心跳三个数字背得准：3 秒一次、30 秒转假死、5 分钟复查 2 次，合计 <b>10.5 分钟</b>判死；知道 DN 挂了 NN 是"用别处的副本再复制一份"而不是搬数据（2.2）</span></label>
+        <label><input type="checkbox" id="c02-3" data-persist><span>能解释"元数据不包含文件内容"和 150 字节/文件的来源，并由此算出小文件为什么会撑爆 NN 内存（2.3）</span></label>
+        <label><input type="checkbox" id="c02-4" data-persist><span>三副本的摆放策略说得清（1 本机架 + 2 跨机架），以及"为什么不全放本架、为什么不全跨架"（2.4）</span></label>
+        <label><input type="checkbox" id="c02-5" data-persist><span>Shell 命令能盲打：<code class="inline">-put</code> 静默覆盖 vs <code class="inline">-get</code> 默认报错的"反向严格度"、<code class="inline">-head</code> 单位是 KB 不是行、<code class="inline">-df</code> 与 <code class="inline">-du</code> 的区别（2.5）</span></label>
+        <label><input type="checkbox" id="c02-6" data-persist><span>写数据七步链能复述，且能说出 pipeline 为什么串行、中途 DN 挂了怎么处理、每写完一块为什么要重新要一次 DN 列表（2.6）</span></label>
+        <label><input type="checkbox" id="c02-7" data-persist><span>读与写的差异能列出四条（不用 pipeline / 不用 ack / 块可并行 / 失败换副本），知道 HAR 归档治小文件的三个限制（2.7）</span></label>
+        <label><input type="checkbox" id="c02-8" data-persist><span>checkpoint 九步能复述，尤其是"滚动必须先于拉取"、"合并期间 001 封口 002 接着写"、"合并是 SNN 干不是 NN 干"（2.8）</span></label>
+        <label><input type="checkbox" id="c02-9" data-persist><span>安全模式的三种入口、只读范围、进出命令说得清；更重要的是能讲出"块汇报不落盘"这条因果链，以及 NN 恢复的三条路各自代价（2.9）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 02 章 · 由 26 个视频（3.7 小时）提炼 · 2026-11</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

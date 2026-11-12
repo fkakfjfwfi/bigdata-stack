@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<meta name="description" content="大数据技术栈：从一套 16 天 Hadoop 实战课提炼的教学站点，覆盖 HDFS、Hive、MapReduce、YARN、ZooKeeper，每个命令可复制、每个坑有出处。">
+<title>大数据技术栈 · 从 Hadoop 到 Hive 的实战笔记</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="home">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home" class="active">首页</a>
+      <a href="ch01.html" data-nav="c01">第 01 章 · Hadoop 基础 →</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:24px;padding-bottom:48px">
+
+  <section class="hero">
+    <span class="tag">v0.2 · 第 08~09 天已完成，后续按天扩展</span>
+    <h1>大数据技术栈</h1>
+    <p class="sub">这套笔记来自一套 <b>16 天的 Hadoop 实战课</b>（Linux 基础 → Hadoop → Hive → 数仓项目），按天提炼为章节。当前完成的是<b>第 08 天：Hadoop 基础与集群架构</b>——从"Hadoop 到底是什么"讲到"三台机器上跑起一个能用的集群"，把老师口述的操作补成可复制的命令，把他一句带过的坑写成对照表。<b>每个知识点都标了视频时间戳</b>，想回看原片可以直接定位。</p>
+    <div class="pwrap">
+      <div class="progress"><div class="fill" data-progress-bar="all"></div></div>
+      <span class="plabel" data-progress-label="all">0 / 17 项已打卡</span>
+    </div>
+  </section>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="num">2</div><div class="lab">章已上线 · 计划 9 章</div></div>
+    <div class="stat-card"><div class="num">17</div><div class="lab">打卡点 · 进度自动保存</div></div>
+    <div class="stat-card"><div class="num">17</div><div class="lab">小节 · 全部标时间戳</div></div>
+    <div class="stat-card"><div class="num">7.8h</div><div class="lab">素材时长 · 53 个视频</div></div>
+  </div>
+
+  <!-- ================= 知识体系 ================= -->
+  <section class="section">
+    <h2>章节总览</h2>
+    <p class="desc">按课程的"天"划分章节——一天课对应一章，不硬凑数量。每章开头有「内容基准」，写明这章讲了几个视频、哪个是重点、哪几节可以跳过。</p>
+
+    <div class="basis-note">
+      <span class="bt">关于内容时效</span>
+      <span class="bl">素材来自实战课录像，<b>2026-11</b> 提炼整理。Hadoop 3.x 的组件与配置在近几年相对稳定，但<b>具体版本号、下载地址、端口</b>请以你安装时为准——每章的「内容基准」会标出哪些节需要核对。</span>
+      <span class="bl">章节标题上的标记：<span class="chip ts-now">较新</span> 近年补充　<span class="chip ts-check">需核对</span> 版本或环境已变　<span class="chip ts-old">已失效</span> 仅作参考</span>
+    </div>
+
+    <div class="grid-2">
+      <a class="card cardlink" href="ch01.html"><h3>01 · Hadoop 基础与集群架构 <span class="badge b-green" data-chapter-progress="c01" style="float:right">0/8</span></h3>
+        <p>Hadoop 狭义与广义、Google 三篇论文的来龙去脉、1.x→2.x→3.x 每代补了哪个洞、三台机器怎么分角色、四个 XML 怎么配、起不来的时候看什么、HDFS 的块与副本、跑通第一个 MapReduce 作业。</p>
+        <div><span class="chip tbook">day08 · 27 个视频</span><span class="chip tnew">含排错对照表</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch02.html"><h3>02 · HDFS 分布式存储 <span class="badge b-green" data-chapter-progress="c02" style="float:right">0/9</span></h3>
+        <p>从"如果让你设计一个分布式文件系统"推导起：切块、副本、主从、心跳；然后是三大角色与机架感知、Shell 命令全解、写数据七步链与 pipeline、读流程、fsimage 与 edits 的合并、安全模式与 NN 恢复。</p>
+        <div><span class="chip tbook">day09 · 26 个视频</span><span class="chip tnew">含面试高频考点</span></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ================= 学习路径 ================= -->
+  <section class="section">
+    <h2>建议的学习顺序</h2>
+    <p class="desc">这一章的内容有强依赖关系，跳着看会卡。</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>先建立地图（1.1 → 1.4）</h3>
+        <p class="muted small">先搞清楚 Hadoop 由哪两个集群组成、每个角色的职责、1.x 为什么不行、2.x 怎么改的。这四节不涉及操作，但决定了后面每一步"为什么要这么做"。<b>跳过这四节，后面全是死记硬背。</b></p>
+      </div>
+      <div class="card">
+        <h3>再动手搭（1.5 → 1.6）</h3>
+        <p class="muted small">环境准备、四个 XML、格式化、启动。这两节必须按顺序做，中间任何一步跳过都会在后面报错。<b>1.6 的排错表建议先读一遍再动手</b>——它列的错误你多半会遇到。</p>
+      </div>
+      <div class="card">
+        <h3>最后跑通链路（1.7 → 1.8）</h3>
+        <p class="muted small">上传下载文件、看块怎么切、跑一个 MapReduce 作业、开历史服务器、理解回收站。<b>这一段的目的是建立"数据在集群里怎么流动"的直觉</b>，为后面 Hive 的 SQL 执行打下基础。</p>
+      </div>
+      <div class="card">
+        <h3>可以跳过的部分</h3>
+        <p class="muted small">原课有两个"回顾"视频（20、21 集），是课堂复述，已在提炼时去掉。另外"发展史"（1.2 的前半）对做工程的人不是必需，但面试常问，自己权衡。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 速查 ================= -->
+  <section class="section">
+    <h2>速查：端口与进程</h2>
+    <p class="desc">搭集群时最常翻的两张表。数字记不住没关系，知道去哪查就行。</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Web UI 端口</h3>
+        <table>
+          <thead><tr><th>服务</th><th>端口</th><th>看什么</th></tr></thead>
+          <tbody>
+            <tr><td>HDFS NameNode</td><td><b>9870</b></td><td>文件系统、块、副本</td></tr>
+            <tr><td>YARN ResourceManager</td><td><b>8088</b></td><td>作业列表与状态</td></tr>
+            <tr><td>JobHistoryServer</td><td><b>19888</b></td><td>历史作业详情</td></tr>
+            <tr><td>NameNode RPC</td><td>8020</td><td>客户端连这个</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>三台机器的进程（共 9 个）</h3>
+        <table>
+          <thead><tr><th>机器</th><th>进程</th><th>数量</th></tr></thead>
+          <tbody>
+            <tr><td>node1</td><td>NameNode / DataNode / ResourceManager / NodeManager</td><td>4</td></tr>
+            <tr><td>node2</td><td>SecondaryNameNode / DataNode / NodeManager</td><td>3</td></tr>
+            <tr><td>node3</td><td>DataNode / NodeManager</td><td>2</td></tr>
+          </tbody>
+        </table>
+        <p class="muted small"><code class="inline">jps</code> 的输出比对着看，缺哪个就知道哪一环没起来。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>这套笔记怎么来的</h2>
+    <p class="desc">和一般课程笔记的区别，在三个地方：</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>口述补成命令</h3>
+        <p class="muted small">老师讲课是"这里我们改一下""然后启动它"，提炼时补成了完整可复制的命令和配置文件片段。你看不到他手上的操作，但能直接照着敲。</p>
+      </div>
+      <div class="card">
+        <h3>坑写成对照表</h3>
+        <p class="muted small">"这里可能会报错"这种话，展开成「现象 → 原因 → 解法」三段式。1.6 那张排错表是整章最该先读的部分。</p>
+      </div>
+      <div class="card">
+        <h3>每句都能回查</h3>
+        <p class="muted small">每个知识点后面都有 <span class="muted">（14 · 05:20–09:10）</span> 这样的标注，指回原视频的集数与位置。有疑问可以直接定位，不用重看四小时。</p>
+      </div>
+      <div class="card">
+        <h3>说清哪里是补充</h3>
+        <p class="muted small">有些内容课程没讲但工程上必需（比如 <code class="inline">-skipTrash</code>、机架感知的具体策略），文中会标"补充"二字，和原课内容区分开。</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 由 16 天实战课提炼 · 2026-11 整理 · 当前第 08 天</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
