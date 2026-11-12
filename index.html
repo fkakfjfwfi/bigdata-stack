@@ -35,20 +35,20 @@
 <main class="container app" style="padding-top:24px;padding-bottom:48px">
 
   <section class="hero">
-    <span class="tag">v0.2 · 第 08~09 天已完成，后续按天扩展</span>
+    <span class="tag">v1.0 · 全 9 章完成 · 16 天 / 191 个有效视频 / 30 小时</span>
     <h1>大数据技术栈</h1>
     <p class="sub">这套笔记来自一套 <b>16 天的 Hadoop 实战课</b>（Linux 基础 → Hadoop → Hive → 数仓项目），按天提炼为章节。当前完成的是<b>第 08 天：Hadoop 基础与集群架构</b>——从"Hadoop 到底是什么"讲到"三台机器上跑起一个能用的集群"，把老师口述的操作补成可复制的命令，把他一句带过的坑写成对照表。<b>每个知识点都标了视频时间戳</b>，想回看原片可以直接定位。</p>
     <div class="pwrap">
       <div class="progress"><div class="fill" data-progress-bar="all"></div></div>
-      <span class="plabel" data-progress-label="all">0 / 17 项已打卡</span>
+      <span class="plabel" data-progress-label="all">0 / 77 项已打卡</span>
     </div>
   </section>
 
   <div class="stats-row">
-    <div class="stat-card"><div class="num">2</div><div class="lab">章已上线 · 计划 9 章</div></div>
-    <div class="stat-card"><div class="num">17</div><div class="lab">打卡点 · 进度自动保存</div></div>
-    <div class="stat-card"><div class="num">17</div><div class="lab">小节 · 全部标时间戳</div></div>
-    <div class="stat-card"><div class="num">7.8h</div><div class="lab">素材时长 · 53 个视频</div></div>
+    <div class="stat-card"><div class="num">9</div><div class="lab">章 · 全部完成</div></div>
+    <div class="stat-card"><div class="num">77</div><div class="lab">打卡点 · 进度自动保存</div></div>
+    <div class="stat-card"><div class="num">77</div><div class="lab">小节 · 全部标时间戳</div></div>
+    <div class="stat-card"><div class="num">30.0h</div><div class="lab">有效素材 · 191 个视频</div></div>
   </div>
 
   <!-- ================= 知识体系 ================= -->
@@ -72,30 +72,70 @@
         <p>从"如果让你设计一个分布式文件系统"推导起：切块、副本、主从、心跳；然后是三大角色与机架感知、Shell 命令全解、写数据七步链与 pipeline、读流程、fsimage 与 edits 的合并、安全模式与 NN 恢复。</p>
         <div><span class="chip tbook">day09 · 26 个视频</span><span class="chip tnew">含面试高频考点</span></div>
       </a>
+
+      <a class="card cardlink" href="ch03.html"><h3>03 · Hive 数仓构建 <span class="badge b-green" data-chapter-progress="c03" style="float:right">0/8</span></h3>
+        <p>先讲清数仓这个领域在干什么：既不生产也不消费数据、OLTP 与 OLAP 的分野、ODS→DWD→DWS→DWT→ADS 五层漏斗、ETL 与 ELT 的分水岭。再把 Hive 装上——三种部署方式、六个配置文件、四个客户端。</p>
+        <div><span class="chip tbook">day10 · 13 个视频</span><span class="chip tnew">含 guava 版本坑</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch04.html"><h3>04 · Hive 基础知识 <span class="badge b-green" data-chapter-progress="c04" style="float:right">0/10</span></h3>
+        <p>建表要做的三个设计决定：数据怎么解析（SerDe 与分隔符）、这张表归谁管（内部表还是外部表）、数据怎么分（分区是目录、分桶是文件）。外加 DDL、数据类型、动态分区、MSCK 修复分区、LOAD DATA 四种组合。</p>
+        <div><span class="chip tbook">day11 · 30 个视频</span><span class="chip tnew">全站最长一章</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch05.html"><h3>05 · Hive 查询操作 <span class="badge b-green" data-chapter-progress="c05" style="float:right">0/9</span></h3>
+        <p>SQL 语法你大概都会，所以这一章的增量在三处容易写错的地方：四种排序的边界（全局有序 ⇔ 单 Reducer）、六种 JOIN 与 ON/WHERE 之别、以及 NULL 参与的每一次比较。这三处写错都不报错，只是结果不对。</p>
+        <div><span class="chip tbook">day12 · 23 个视频</span><span class="chip tnew">含 NULL 陷阱清单</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch06.html"><h3>06 · Hive 高级查询 <span class="badge b-green" data-chapter-progress="c06" style="float:right">0/8</span></h3>
+        <p>三样"不会就写不出来"的东西：一行拆多行（explode + 侧视图）、多行合成一行（行列转换）、不聚合也能加汇总列（窗口函数）。窗口函数那个默认窗口值是本章最大的坑——它同时解释了 RANGE 并列和 LAST_VALUE 失效。</p>
+        <div><span class="chip tbook">day13 · 18 个视频</span><span class="chip tnew">含 ROWS/RANGE 实测</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch07.html"><h3>07 · MapReduce 与 YARN <span class="badge b-green" data-chapter-progress="c07" style="float:right">0/8</span></h3>
+        <p>拆开 SQL 下面那个盒子：天龙八步（切片、map、分区、排序、规约、分组、reduce、输出）、Shuffle 五段、K1V1→K2V2→Iterable 的四次形态变化。后半段讲 YARN 三大角色、七步提交流程、三种调度器。</p>
+        <div><span class="chip tbook">day14 · 15 个视频</span><span class="chip tnew">含两道面试题</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch08.html"><h3>08 · ZooKeeper 与高可用 <span class="badge b-green" data-chapter-progress="c08" style="float:right">0/8</span></h3>
+        <p>ZK 把"进程活着"变成了树上一个可被监听的状态——这一章的核心就是这句话。四种节点、两次选举、Watch 的一次性触发，最后落到 Hadoop HA 的九步自动切换链和 fencing（脑裂防护）。</p>
+        <div><span class="chip tbook">day15 · 19 个视频</span><span class="chip tnew">含 HA 排错清单</span></div>
+      </a>
+
+      <a class="card cardlink" href="ch09.html"><h3>09 · Hive 存储压缩与优化 <span class="badge b-green" data-chapter-progress="c09" style="float:right">0/9</span></h3>
+        <p>压轴章，全部是"怎么让它快"。一组硬数据开头：18.13 MB 的同一份数据，TEXTFILE 18.13 / PARQUET 13.09 / <b>ORC 2.78 MB</b>，而查询耗时不变。然后是压缩与切片的矛盾、ORC 两级索引、两种 JOIN、倾斜治理、优化优先级四层。</p>
+        <div><span class="chip tbook">day16 · 20 个视频</span><span class="chip tnew">含实测数字</span></div>
+      </a>
     </div>
   </section>
 
   <!-- ================= 学习路径 ================= -->
   <section class="section">
     <h2>建议的学习顺序</h2>
-    <p class="desc">这一章的内容有强依赖关系，跳着看会卡。</p>
+    <p class="desc">九章之间有强依赖，跳着看会卡。但也分两类：<b>必须按顺序读的（1~5 章）</b>，和<b>可以按需跳读的（6~9 章）</b>。</p>
+
     <div class="grid-2">
       <div class="card">
-        <h3>先建立地图（1.1 → 1.4）</h3>
-        <p class="muted small">先搞清楚 Hadoop 由哪两个集群组成、每个角色的职责、1.x 为什么不行、2.x 怎么改的。这四节不涉及操作，但决定了后面每一步"为什么要这么做"。<b>跳过这四节，后面全是死记硬背。</b></p>
+        <h3>第一段 · 打地基（01 → 02）</h3>
+        <p class="muted small">先搞清楚 Hadoop 由哪两个集群组成、每个角色干什么、三台机器怎么分。然后深入 HDFS——<b>块、副本、心跳、写数据七步链</b>。这一段不涉及 SQL，但决定了后面所有"为什么这么慢"的答案。</p>
       </div>
       <div class="card">
-        <h3>再动手搭（1.5 → 1.6）</h3>
-        <p class="muted small">环境准备、四个 XML、格式化、启动。这两节必须按顺序做，中间任何一步跳过都会在后面报错。<b>1.6 的排错表建议先读一遍再动手</b>——它列的错误你多半会遇到。</p>
+        <h3>第二段 · 进 Hive（03 → 05）</h3>
+        <p class="muted small">03 先讲数仓这个领域在做什么（分层、ETL），然后把 Hive 装上。<b>04 是全站最长的一章</b>（建表的三个设计决定：SerDe、内外表、分区分桶），值得慢读。05 讲查询，重点不是语法，是三处「写错不报错只是结果不对」的地方。</p>
       </div>
       <div class="card">
-        <h3>最后跑通链路（1.7 → 1.8）</h3>
-        <p class="muted small">上传下载文件、看块怎么切、跑一个 MapReduce 作业、开历史服务器、理解回收站。<b>这一段的目的是建立"数据在集群里怎么流动"的直觉</b>，为后面 Hive 的 SQL 执行打下基础。</p>
+        <h3>第三段 · 拆底层（07 → 08）</h3>
+        <p class="muted small">07 拆开 SQL 下面那个盒子（天龙八步、Shuffle、YARN），08 讲 ZooKeeper 和 Hadoop HA。<b>这两章是面试的主战场</b>，也是理解 09 章优化的前提——不知道 shuffle 贵在哪，就不知道为什么要把小表放前面。</p>
       </div>
       <div class="card">
-        <h3>可以跳过的部分</h3>
-        <p class="muted small">原课有两个"回顾"视频（20、21 集），是课堂复述，已在提炼时去掉。另外"发展史"（1.2 的前半）对做工程的人不是必需，但面试常问，自己权衡。</p>
+        <h3>按需跳读 · 06 与 09</h3>
+        <p class="muted small"><b>06</b>（高级查询）是工具箱——explode、行列转换、窗口函数，用得到再查。<b>09</b>（优化）建议<b>放到最后</b>：它把前面所有章节的知识都用上了，没学过 04 的分区、07 的 shuffle，读 09 只能背结论。</p>
       </div>
+    </div>
+
+    <div class="callout info" style="margin-top:18px"><b>一条更实际的建议：先做一遍，再回头读原理。</b>
+      <p>这套课的顺序是"先搭集群再讲架构"，容易让人卡在配置上失去耐心。<b>如果只是想先跑通</b>，就读 01 的 1.5~1.6 + 03 的 3.6~3.7，把 Hadoop 和 Hive 都启动起来，跑一条 <code class="inline">select count(*)</code>。有了这个体感，再回头从 1.1 开始读，每个概念都能对上刚才看到的现象。</p>
     </div>
   </section>
 

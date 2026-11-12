@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>04 · Hive 基础知识 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c04">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch03.html" data-nav="c03">← 上一章</a>
+      <a href="ch04.html" data-nav="c04" class="active">第 04 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第二阶段 · Hive / <b>04 · Hive 基础知识</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <a href="ch02.html" data-nav="c02"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <div class="grp">🐝 Hive 阶段</div>
+      <a href="ch03.html" data-nav="c03"><span class="no">03</span>Hive 数仓构建 <span class="pg" data-chapter-progress="c03">0/8</span></a>
+      <a href="ch04.html" data-nav="c04" class="active"><span class="no">04</span>Hive 基础知识 <span class="pg" data-chapter-progress="c04">0/10</span></a>
+      <a href="ch05.html" data-nav="c05"><span class="no">05</span>Hive 查询操作 <span class="pg" data-chapter-progress="c05">0/9</span></a>
+      <a href="ch06.html" data-nav="c06"><span class="no">06</span>Hive 高级查询 <span class="pg" data-chapter-progress="c06">0/8</span></a>
+      <div class="grp">⚙️ 计算引擎</div>
+      <a href="ch07.html" data-nav="c07"><span class="no">07</span>MapReduce 与 YARN <span class="pg" data-chapter-progress="c07">0/8</span></a>
+      <div class="grp">🛡️ 高可用</div>
+      <a href="ch08.html" data-nav="c08"><span class="no">08</span>ZooKeeper 与高可用 <span class="pg" data-chapter-progress="c08">0/8</span></a>
+      <div class="grp">🚀 优化</div>
+      <a href="ch09.html" data-nav="c09"><span class="no">09</span>Hive 存储压缩与优化 <span class="pg" data-chapter-progress="c09">0/9</span></a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 11 天 · 30 个有效视频 · 5.1 小时</span>
+        <h1>04 · Hive 基础知识</h1>
+        <p class="sub">这一章教的是"怎么在 Hive 里定义数据"。看起来都是语法，但真正决定成败的是三个设计决定：<b>数据怎么解析（SerDe）、这张表归谁管（内部还是外部）、数据怎么分目录（分区/分桶）</b>。三者选错，后面的查询再怎么写都快不起来，甚至查不到数。<b>这一章也是全站篇幅最长的一章</b>，因为它是后面所有 SQL 的地基。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 11 天（30 个有效视频，另有 1 个"串讲"已跳过）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>4.2</b> 的乱码修复依赖 MySQL 版本（8.x 的字符集默认值已变，坑没那么容易踩到，但原理不变）；<b>4.9</b> 的分桶参数在 Hive 3 里默认值有调整，以 <code class="inline">SET</code> 实际查看为准。其余章节是机制，不受版本影响。</span>
+        </div>
+      </section>
+
+      <!-- ============ 4.1 ============ -->
+      <h2>4.1 心智模型：库是目录，表是目录加文件</h2>
+
+      <p>学 Hive 最省力的第一步，是先把脑子里"表 = 数据库里的一块存储"这个印象换掉。Hive 的真实结构是这样的：</p>
+
+<pre class="code">HDFS
+└── /user/hive/warehouse/          <span class="cm">← 数仓根目录（hive.metastore.warehouse.dir）</span>
+    ├── db_itcast.db/              <span class="cm">← 一个库 = 一个 .db 结尾的目录</span>
+    │   ├── t_students/            <span class="cm">← 一张表 = 一个子目录</span>
+    │   │   └── students.txt       <span class="cm">← 真实数据就是普通文本文件</span>
+    │   └── t_order/
+    │       ├── dt=2026-01-01/     <span class="cm">← 一个分区 = 一个子目录</span>
+    │       │   └── 000000_0
+    │       └── dt=2026-01-02/
+    └── db_hive3.db/</pre>
+
+      <div class="callout ok"><b>这张图能解释后面几乎所有困惑：</b>
+        <p>· 为什么建库建表瞬间完成？——因为只是建目录、写元数据，没有搬任何数据。<br>
+        · 为什么改表名很快？——改的是 MySQL 里的一行记录。<br>
+        · 为什么分区表能"跳过"大部分数据？——因为分区就是目录，不查的目录压根不打开。<br>
+        · 为什么 <code class="inline">DROP</code> 外部表不丢数据？——因为元数据在 MySQL、数据在 HDFS，两套系统。</p>
+      </div>
+
+      <p>元数据（有哪些库、哪些表、字段叫什么、数据在哪）<b>全部存在 MySQL 里</b>，HDFS 上只有数据文件。<b>这两套东西的一致性，就是后面所有"查不到数据"问题的根源。</b></p>
+
+      <p class="muted small">（01 · 06:30–09:15；03 全篇）</p>
+
+      <!-- ============ 4.2 ============ -->
+      <h2>4.2 数据库 DDL 与那个只能提前防的乱码坑</h2>
+
+      <h3>库的五组操作</h3>
+
+<pre class="code"><span class="cm">-- 建（最小）</span>
+<span class="kw">CREATE DATABASE</span> db_itcast;
+
+<span class="cm">-- 建（生产写法：幂等 + 备注 + 自定义属性）</span>
+<span class="kw">CREATE DATABASE IF NOT EXISTS</span> db_hive3
+<span class="kw">COMMENT</span> <span class="st">'hive3 数据库'</span>
+<span class="kw">LOCATION</span> <span class="st">'hdfs://node1:8020/user/hive/warehouse/db_hive3.db'</span>
+<span class="kw">WITH DBPROPERTIES</span> (<span class="st">'createBy'</span> = <span class="st">'itcast'</span>);
+
+<span class="cm">-- 查</span>
+<span class="kw">SHOW DATABASES</span>;                    <span class="cm">-- 列出所有库</span>
+<span class="kw">SHOW DATABASES LIKE</span> <span class="st">'db_*'</span>;        <span class="cm">-- 支持通配</span>
+<span class="kw">DESCRIBE DATABASE EXTENDED</span> db_hive3;  <span class="cm">-- 带 DBPROPERTIES</span>
+
+<span class="cm">-- 切</span>
+<span class="kw">USE</span> db_itcast;
+<span class="kw">SELECT</span> current_database();          <span class="cm">-- 确认当前在哪个库</span>
+
+<span class="cm">-- 改</span>
+<span class="kw">ALTER DATABASE</span> db_itcast <span class="kw">SET DBPROPERTIES</span> (<span class="st">'dept'</span>=<span class="st">'bigdata'</span>);
+
+<span class="cm">-- 删（CASCADE 连表一起删，RESTRICT 是默认：有表就拒删）</span>
+<span class="kw">DROP DATABASE IF EXISTS</span> db_itcast <span class="kw">CASCADE</span>;</pre>
+
+      <p><b>两个容易忽略的点</b>：</p>
+      <ul>
+        <li><code class="inline">LOCATION</code> 指向的目录<b>不需要预先建</b>，Hive 会自动创建。</li>
+        <li><code class="inline">DESCRIBE DATABASE</code> 输出里的 <code class="inline">Location</code> 那一行是排障关键——它告诉你这个库到底挂在 HDFS 哪个路径，<b>查"数据在哪"第一个看它</b>。</li>
+      </ul>
+
+      <h3>中文 COMMENT 变问号：根因不在 Hive</h3>
+
+      <p><b>现象</b>：建库建表都不报错，只有备注里的中文变成 <code class="inline">???</code>：</p>
+
+<pre class="code"><span class="kw">CREATE DATABASE</span> db_hive3 <span class="kw">COMMENT</span> <span class="st">'hive3 数据库'</span>;
+<span class="kw">DESCRIBE DATABASE EXTENDED</span> db_hive3;
+<span class="cm">-- 备注显示：hive3 ???</span></pre>
+
+      <div class="callout warn"><b>根因：元数据存在 MySQL，而元数据库的字符集是 latin1。</b>
+        <p>latin1 是单字节编码，只有 255 个码位，<b>根本表达不了汉字</b>。MySQL 收到"数据库"三个字时无处安放，直接替换成 <code class="inline">?</code> 再存进去。</p>
+        <p><b>所以这是"写入时就丢了"，不是"显示时才坏"。</b>这也意味着——<b>已经变成 <code class="inline">?</code> 的数据，修好字符集也救不回来</b>，早就是问号了，必须重新执行 COMMENT。</p>
+      </div>
+
+      <p><b>为什么改 hive-site.xml 没用</b>：那里配的是 JDBC 连接参数，管的是"传输过程用什么编码"。但列定义、表定义的字符集在<b>建表那一刻</b>就定死在 MySQL 里了，连接参数管不着。</p>
+
+      <h3>怎么查</h3>
+
+<pre class="code">mysql -uroot -p
+
+<span class="cm">-- 看元数据库的建表语句，重点看末尾的 DEFAULT CHARSET</span>
+<span class="kw">SHOW CREATE TABLE</span> hive3.DBS\G
+<span class="cm">-- ) ENGINE=InnoDB DEFAULT CHARSET=latin1   ← 元凶</span>
+
+<span class="cm">-- 直接看数据，确认是存进去就坏了</span>
+<span class="kw">SELECT</span> DB_ID, NAME, `DESC` <span class="kw">FROM</span> hive3.DBS;</pre>
+
+      <p>三张关键表：<code class="inline">DBS</code>（库）、<code class="inline">TBLS</code>（表）、<code class="inline">COLUMNS_V2</code>（字段）。COMMENT 乱码看这三张。</p>
+
+      <h3>怎么修：三步，顺序不能乱</h3>
+
+      <p><b>① 改 MySQL 服务端默认字符集</b>（<code class="inline">/etc/my.cnf</code>）</p>
+
+<pre class="code">[mysqld]
+character-set-server=utf8
+collation-server=utf8_general_ci
+
+[client]
+default-character-set=utf8
+
+[mysql]
+default-character-set=utf8</pre>
+
+<pre class="code">systemctl restart mysqld</pre>
+
+      <p><b>② 把已存在的元数据表转成 utf8</b>——这一步不能省。改 <code class="inline">my.cnf</code> 只影响以后新建的表，已有的 <code class="inline">latin1</code> 表不会自己变：</p>
+
+<pre class="code"><span class="kw">ALTER DATABASE</span> hive3 <span class="kw">CHARACTER SET</span> utf8;
+
+<span class="kw">ALTER TABLE</span> hive3.DBS        <span class="kw">CONVERT TO CHARACTER SET</span> utf8;
+<span class="kw">ALTER TABLE</span> hive3.TBLS       <span class="kw">CONVERT TO CHARACTER SET</span> utf8;
+<span class="kw">ALTER TABLE</span> hive3.COLUMNS_V2 <span class="kw">CONVERT TO CHARACTER SET</span> utf8;</pre>
+
+      <p>元数据库有 70 多张表，手写不现实。批量生成再执行：</p>
+
+<pre class="code"><span class="kw">SELECT CONCAT</span>(<span class="st">'ALTER TABLE hive3.'</span>, table_name,
+              <span class="st">' CONVERT TO CHARACTER SET utf8;'</span>)
+<span class="kw">FROM</span> information_schema.tables
+<span class="kw">WHERE</span> table_schema = <span class="st">'hive3'</span>;</pre>
+
+      <p><b>③ 重建那些带中文 COMMENT 的库和表</b>，因为旧值已经是问号了。</p>
+
+      <div class="callout info"><b>更省事的做法：一开始就别踩。</b>建元数据库时直接写 <code class="inline">CREATE DATABASE hive3 DEFAULT CHARACTER SET utf8;</code>——<b>这一句能省掉后面半小时</b>。上一章 3.6 里那条建库语句就是为这个。</div>
+
+      <p class="muted small">（01、02 两集；批量转换脚本为补充）</p>
+
+      <!-- ============ 4.3 ============ -->
+      <h2>4.3 建表语法与数据类型</h2>
+
+      <h3>一条建表语句的五个部件</h3>
+
+<pre class="code"><span class="kw">CREATE</span> [<span class="kw">EXTERNAL</span>] <span class="kw">TABLE</span> [<span class="kw">IF NOT EXISTS</span>] db.tb (
+    id    <span class="kw">INT</span>     <span class="kw">COMMENT</span> <span class="st">'编号'</span>,       <span class="cm">-- ① 字段定义</span>
+    name  <span class="kw">STRING</span>  <span class="kw">COMMENT</span> <span class="st">'姓名'</span>
+)
+<span class="kw">COMMENT</span> <span class="st">'学生表'</span>                          <span class="cm">-- ② 表备注</span>
+<span class="kw">PARTITIONED BY</span> (dt <span class="kw">STRING</span>)               <span class="cm">-- ③ 分区（可选）</span>
+<span class="kw">ROW FORMAT DELIMITED</span>                    <span class="cm">-- ④ 怎么解析一行</span>
+    <span class="kw">FIELDS TERMINATED BY</span> <span class="st">','</span>
+<span class="kw">STORED AS</span> TEXTFILE                        <span class="cm">-- ⑤ 存成什么格式</span>
+<span class="kw">LOCATION</span> <span class="st">'/stu'</span>;                          <span class="cm">-- ⑥ 数据在哪</span></pre>
+
+      <table>
+        <thead><tr><th>部件</th><th>作用</th><th>不写会怎样</th></tr></thead>
+        <tbody>
+          <tr><td>① 字段</td><td>列名 + 类型 + 备注</td><td>必须有</td></tr>
+          <tr><td>② <code class="inline">COMMENT</code></td><td>表和字段的说明，存在 MySQL</td><td>不写就是空，<b>团队协作时是灾难</b></td></tr>
+          <tr><td>③ <code class="inline">PARTITIONED BY</code></td><td>按目录切分数据</td><td>全表一个目录，查询扫全量</td></tr>
+          <tr><td>④ <code class="inline">ROW FORMAT</code></td><td>配 SerDe，决定怎么切字段</td><td><b>默认用 <code class="inline">\001</code>，见 4.5</b></td></tr>
+          <tr><td>⑤ <code class="inline">STORED AS</code></td><td>文件格式（TEXTFILE / ORC / PARQUET）</td><td>默认 TEXTFILE，纯文本</td></tr>
+          <tr><td>⑥ <code class="inline">LOCATION</code></td><td>数据目录</td><td>默认 <code class="inline">/user/hive/warehouse/db.db/tb/</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>原生数据类型</h3>
+
+      <table>
+        <thead><tr><th>类型</th><th>对应 Java</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">TINYINT</code> / <code class="inline">SMALLINT</code> / <code class="inline">INT</code> / <code class="inline">BIGINT</code></td><td>byte / short / int / long</td><td>整数四兄弟，按范围选</td></tr>
+          <tr><td><code class="inline">FLOAT</code> / <code class="inline">DOUBLE</code></td><td>float / double</td><td>浮点，<b>金额别用</b></td></tr>
+          <tr><td><code class="inline">DECIMAL(p,s)</code></td><td>BigDecimal</td><td><b>金额用这个</b>，p 总位数、s 小数位</td></tr>
+          <tr><td><code class="inline">STRING</code></td><td>String</td><td>万能类型，<b>实际用得最多</b></td></tr>
+          <tr><td><code class="inline">VARCHAR(n)</code> / <code class="inline">CHAR(n)</code></td><td>String</td><td>有长度限制，很少用</td></tr>
+          <tr><td><code class="inline">BOOLEAN</code></td><td>boolean</td><td>true / false</td></tr>
+          <tr><td><code class="inline">DATE</code> / <code class="inline">TIMESTAMP</code></td><td>Date / Timestamp</td><td>日期与时间戳</td></tr>
+          <tr><td><code class="inline">BINARY</code></td><td>byte[]</td><td>二进制，少用</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>实战经验：90% 的字段用 <code class="inline">STRING</code> 就对了。</b>
+        <p>原因很实在——源数据从业务库抽过来时经常有脏值（数字列里混着空串、<code class="inline">NULL</code> 字符串、<code class="inline">-</code>）。定义成 <code class="inline">INT</code> 会让整个文件解析失败或该字段全变 <code class="inline">NULL</code>；定义成 <code class="inline">STRING</code> 先接住，要用的时候再 <code class="inline">CAST</code>。<b>而 <code class="inline">STRING</code> 是所有类型的"最宽"端，任何类型都能自动转过去。</b></p>
+      </div>
+
+      <p><b>类型名大小写不敏感</b>——<code class="inline">INT</code>、<code class="inline">int</code>、<code class="inline">Int</code> 都行，Hive 会统一成大写显示。</p>
+
+      <h3>复杂数据类型</h3>
+
+      <table>
+        <thead><tr><th>类型</th><th>声明</th><th>访问语法</th><th>对应 JSON</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">ARRAY</code></td><td><code class="inline">ARRAY&lt;STRING&gt;</code></td><td><code class="inline">arr[0]</code>（<b>下标从 0 开始</b>）</td><td><code class="inline">["a","b"]</code></td></tr>
+          <tr><td><code class="inline">MAP</code></td><td><code class="inline">MAP&lt;STRING,INT&gt;</code></td><td><code class="inline">m['k']</code></td><td><code class="inline">{"k":1}</code></td></tr>
+          <tr><td><code class="inline">STRUCT</code></td><td><code class="inline">STRUCT&lt;name:STRING,age:INT&gt;</code></td><td><code class="inline">s.name</code>（<b>点号</b>）</td><td><code class="inline">{"name":"x"}</code></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>三种类型的访问语法不能混</b>：数组用方括号下标、map 用方括号加 key、struct 用点号。写错不会报错，只会返回 <code class="inline">NULL</code>——这是排查起来最费劲的一类问题。</p>
+
+      <h3>隐式转换：一个"能成立所以测不出来"的陷阱</h3>
+
+      <table>
+        <thead><tr><th></th><th>隐式转换</th><th>显式转换</th></tr></thead>
+        <tbody>
+          <tr><td>谁触发</td><td>Hive 自动</td><td>你写 <code class="inline">CAST</code></td></tr>
+          <tr><td>方向</td><td><b>窄 → 宽</b>（安全方向）</td><td>任意方向</td></tr>
+          <tr><td>失败时</td><td>静默变 <code class="inline">NULL</code></td><td>返回 <code class="inline">NULL</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>三条规律够用：数值链单向递增（<code class="inline">TINYINT</code> → <code class="inline">SMALLINT</code> → <code class="inline">INT</code> → <code class="inline">BIGINT</code> → <code class="inline">FLOAT</code> → <code class="inline">DOUBLE</code>，顺向可以逆向不行）；<b>数值 → 字符串永远可以</b>；<b>字符串 → 数值需要显式 CAST</b>。</p>
+
+      <div class="callout warn"><b><code class="inline">'1' = 1</code> 在 Hive 里通常返回 <code class="inline">true</code>——这正是它危险的地方。</b>
+        <p>规则：比较运算遇到 <code class="inline">STRING</code> 与数值，Hive 把字符串转成 <b>DOUBLE</b> 再比。于是：</p>
+<pre class="code"><span class="kw">SELECT</span> <span class="st">'1'</span>    = 1;   <span class="cm">-- true</span>
+<span class="kw">SELECT</span> <span class="st">'01'</span>   = 1;   <span class="cm">-- true   前导零被吃掉</span>
+<span class="kw">SELECT</span> <span class="st">' 1'</span>   = 1;   <span class="cm">-- true   前导空格被吃掉</span>
+<span class="kw">SELECT</span> <span class="st">'1'</span>    = <span class="st">'01'</span>;<span class="cm">-- false  两个都是字符串，按字典序比</span>
+<span class="kw">SELECT</span> <span class="st">'1abc'</span> = 1;   <span class="cm">-- NULL   转换失败</span></pre>
+        <p><b>真正的生产事故是第三种情况：</b>某天数据里混进 <code class="inline">'1abc'</code>，转换失败返回 <code class="inline">NULL</code>，而这个 <code class="inline">NULL</code> 在 <code class="inline">WHERE</code> 里等于"不成立"，<b>那一行被静默丢掉，不报错、不告警</b>。你的统计数少了几个订单，没人知道为什么。</p>
+        <p>同类事故还有：JOIN 两侧类型不一致（一边 <code class="inline">INT</code> 一边 <code class="inline">STRING</code>）→ 部分 key 匹配不上，结果偏少。所以<b>建表时就把类型定对，比事后排查便宜得多</b>。</p>
+      </div>
+
+      <p class="muted small">（04~08 五集；<code class="inline">DECIMAL</code> 的实战建议为补充）</p>
+
+      <!-- ============ 4.4 ============ -->
+      <h2>4.4 SerDe：Hive 的表是"假的"</h2>
+
+      <p>先把最容易搞混的一点钉死：<b>HDFS 里没有"表"，也没有"行"和"列"。</b>那里只有一堆文本文件，文件里是一行行字符，每个字符都是字节。<code class="inline">1,孙悟空,53</code> 在 HDFS 眼里是十几个字节，它不知道第一个逗号前叫 id。</p>
+
+      <p>Hive 要让这堆字节变可用，中间必须有一层翻译官，就是 <b>SerDe = Serializer + Deserializer</b>：</p>
+
+<pre class="code">读：HDFS 文件
+      ↓ InputFormat  决定"怎么把文件切成一条条记录"
+    key-value（key 是行偏移量，value 是这一行内容）
+      ↓ Deserializer 决定"这一行怎么切成字段"
+    Java 对象 → 表中的一行
+
+写：反过来，Serializer 把 row 转成字节，OutputFormat 写成文件</pre>
+
+      <div class="callout ok"><b>一句话记住：读文件是反序列化，写文件是序列化。</b>
+        <p>由此得到一个很重要的推论：<b><code class="inline">SELECT * FROM t</code> 时 Hive 并不是"从表里取数据"——表里根本没有数据。</b>它是现读 HDFS 文件、现切、现组装成行。<b>所以文件一变，查询结果立刻变，不需要任何同步动作。</b></p>
+      </div>
+
+      <p>那么 <code class="inline">ROW FORMAT DELIMITED FIELDS TERMINATED BY ','</code> 是什么？它<b>不是</b>"一个叫分隔符的独立功能"，<b>它就是 SerDe 的配置项</b>——告诉 Hive 用哪个 Deserializer（这里是 <code class="inline">LazySimpleSerDe</code>）、按什么规则切。</p>
+
+      <p class="muted small">（09 · 全篇）</p>
+
+      <!-- ============ 4.5 ============ -->
+      <h2>4.5 分隔符：为什么"只有第一列有值"</h2>
+
+      <h3>四个子句，覆盖 95% 的场景</h3>
+
+<pre class="code"><span class="kw">ROW FORMAT DELIMITED</span>
+  <span class="kw">FIELDS TERMINATED BY</span> <span class="st">','</span>            <span class="cm">-- 列与列之间</span>
+  <span class="kw">COLLECTION ITEMS TERMINATED BY</span> <span class="st">'-'</span>  <span class="cm">-- 集合内元素之间</span>
+  <span class="kw">MAP KEYS TERMINATED BY</span> <span class="st">':'</span>        <span class="cm">-- map 的 key 与 value 之间</span>
+  <span class="kw">LINES TERMINATED BY</span> <span class="st">'\n'</span>            <span class="cm">-- 行与行之间</span></pre>
+
+      <div class="callout warn"><b><code class="inline">COLLECTION ITEMS</code> 和 <code class="inline">MAP KEYS</code> 最容易被搞混：</b>
+        <p><code class="inline">COLLECTION ITEMS</code> 管两件事——<b>array 里元素之间</b>、以及 <b>map 里多个键值对之间</b>。<br>
+        <code class="inline">MAP KEYS</code> 只管一件事——<b>map 里 key 和 value 之间</b>。</p>
+        <p>举个具体例子：数据是 <code class="inline">张三,100-数学:90-语文:85</code>，字段是 <code class="inline">name STRING, scores MAP&lt;STRING,INT&gt;</code>。这里 <code class="inline">-</code> 分隔两个键值对（用 <code class="inline">COLLECTION ITEMS</code>），<code class="inline">:</code> 分隔 key 和 value（用 <code class="inline">MAP KEYS</code>）。<b>两个写反就切错列，结果里全是 NULL 或串行。</b></p>
+      </div>
+
+      <h3>默认分隔符是 <code class="inline">\001</code>，不是逗号</h3>
+
+      <p>这是最容易踩的一个坑：<b>不写 <code class="inline">ROW FORMAT</code> 时，Hive 用的默认字段分隔符是 <code class="inline">\001</code></b>（ASCII 的 SOH，Ctrl+A），既不是逗号也不是制表符。</p>
+
+      <div class="callout warn"><b>于是产生一个"不报错的失败"：</b>
+        <p>数据文件是逗号分隔，建表时忘了写 <code class="inline">FIELDS TERMINATED BY ','</code>。查询结果是这样的——</p>
+<pre class="code">id    name      age
+1     NULL      NULL
+2     NULL      NULL</pre>
+        <p><b>只有第一列有值，其余全 NULL，而且不报任何错。</b>因为整行被当成一个字段塞给了 <code class="inline">id</code>（类型不符，于是 NULL），后面几列找不到分隔符，自然是 NULL。</p>
+        <p><b>看到"只有第一列有值"，第一个该怀疑的就是分隔符没配对。</b>这个症状在排查清单里应该排第一位。</p>
+      </div>
+
+      <p><b>为什么用 <code class="inline">\001</code> 这么怪的字符？</b>因为它几乎不可能出现在真实文本里。用逗号当默认值，一旦数据内容本身含逗号就会错位，而 <code class="inline">\001</code> 是真正的"不可能冲突"。代价是用文本编辑器打开这类文件会看到一堆小方块。</p>
+
+      <h3>多字符分隔符不支持</h3>
+
+      <p>Hive 的 <code class="inline">LazySimpleSerDe</code> <b>只支持单字符分隔符</b>。源数据是 <code class="inline">||</code>、<code class="inline">\t\t</code> 这类多字符时，处理办法是：用 <code class="inline">MultiDelimitSerDe</code>（建表时 <code class="inline">ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.MultiDelimitSerDe'</code>），或者干脆在入仓前用脚本替换成单字符。</p>
+
+      <p class="muted small">（10、13 两集；多字符分隔符为补充）</p>
+
+      <!-- ============ 4.6 ============ -->
+      <h2>4.6 内部表与外部表：<code class="inline">DROP</code> 到底删什么</h2>
+
+      <p>建表语句的差异只有两个词：</p>
+
+<pre class="code"><span class="cm">-- 内部表（不写 EXTERNAL 就是内部表）</span>
+<span class="kw">CREATE TABLE</span> t_students_internal (
+    id <span class="kw">INT</span>, name <span class="kw">STRING</span>
+)
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>;
+
+<span class="cm">-- 外部表：多 EXTERNAL，几乎总要显式写 LOCATION</span>
+<span class="kw">CREATE EXTERNAL TABLE</span> t_students_ext (
+    id <span class="kw">INT</span>, name <span class="kw">STRING</span>
+)
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>
+<span class="kw">LOCATION</span> <span class="st">'/stu'</span>;</pre>
+
+      <p><b>为什么外部表几乎总要写 <code class="inline">LOCATION</code></b>：因为外部表的用途就是"接管一份别人已经在用的数据"，那份数据不会正好躺在 Hive 自己编出来的默认路径上。</p>
+
+      <table>
+        <thead><tr><th>操作</th><th>内部表</th><th>外部表</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">DESC FORMATTED</code> 里的 Table Type</td><td><code class="inline">MANAGED_TABLE</code></td><td><code class="inline">EXTERNAL_TABLE</code></td></tr>
+          <tr><td><code class="inline">DROP TABLE</code> 删元数据</td><td>✅</td><td>✅</td></tr>
+          <tr><td><code class="inline">DROP TABLE</code> 删 HDFS 数据</td><td><b>✅ 一起删掉</b></td><td><b>❌ 保留</b></td></tr>
+          <tr><td>删完之后</td><td>表和数据都没了</td><td>表看不见了，<b>数据一个字节没少</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>一个比喻：外部表的 <code class="inline">DROP</code> 是"摘掉眼镜"——表看不见，东西还在原地；重新 <code class="inline">CREATE EXTERNAL TABLE ... LOCATION</code> 一次，数据立刻回来。内部表的 <code class="inline">DROP</code> 是"连人带行李一起扔了"。</b></div>
+
+      <p><b>为什么这么设计</b>：Hive 不知道外部表 <code class="inline">LOCATION</code> 指向的目录还有没有别人在用——可能是 HBase 的目录、Spark 正在读的共享目录、别的部门的数据集市、或者从 Oracle 抽过来的原始落地文件。<b>擅自删掉，损失的不是一张表，而是跨系统的数据事故。</b>所以外部表的设计哲学是：<b>我不拥有这份数据，我只借用，我无权删除。</b></p>
+
+      <h3>生产怎么选</h3>
+
+      <table>
+        <thead><tr><th>数据性质</th><th>用什么</th><th>原因</th></tr></thead>
+        <tbody>
+          <tr><td>原始数据 / ODS 落地</td><td><b>外部表</b></td><td>一份数据多引擎共用（Hive / Spark / Presto），删表不能删数据；出问题只重建元数据，秒级恢复</td></tr>
+          <tr><td>数仓中间结果 / 临时汇总</td><td><b>内部表</b></td><td>数据是 Hive 自己算出来的，生命周期就该跟着表走，<code class="inline">DROP</code> 顺手清理能省空间</td></tr>
+          <tr><td>需要频繁重建的表</td><td><b>外部表</b></td><td>重建不用重新灌数据</td></tr>
+        </tbody>
+      </table>
+
+      <p>一句话：<b>原始数据一律外部表，中间结果用内部表。</b>实际工作中大部分表是外部表，因为真实项目里绝大多数表都是接上游数据的。</p>
+
+      <p class="muted small">（14 · 全篇）</p>
+
+      <!-- ============ 4.7 ============ -->
+      <h2>4.7 分区表：分区就是目录</h2>
+
+      <p>先看没有分区时的问题。课程做了一个实测：一张几十万行的表，<code class="inline">SELECT * WHERE 某个条件</code>，跑了很久——<b>因为它必须全表扫</b>。</p>
+
+      <h3>建分区表</h3>
+
+<pre class="code"><span class="kw">CREATE TABLE</span> t_order (
+    order_id <span class="kw">STRING</span>,
+    amount   <span class="kw">DOUBLE</span>
+)
+<span class="kw">PARTITIONED BY</span> (dt <span class="kw">STRING</span>)              <span class="cm">-- 分区字段写在括号外！</span>
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>;</pre>
+
+      <div class="callout warn"><b><code class="inline">PARTITIONED BY</code> 里的字段<b>不是表里的真实列</b>，它是目录名。</b>
+        <p>两个直接推论：<b>①</b> 分区字段不能和表字段重名；<b>②</b> 数据文件里<b>不需要也不应该</b>包含分区字段的值——那个值由目录名提供。</p>
+      </div>
+
+      <p>HDFS 上长这样：</p>
+
+<pre class="code">/user/hive/warehouse/db.db/t_order/
+├── dt=2026-01-01/000000_0
+├── dt=2026-01-02/000000_0
+└── dt=2026-01-03/000000_0</pre>
+
+      <h3>为什么分区能快：目录级裁剪</h3>
+
+      <p><code class="inline">SELECT * FROM t_order WHERE dt='2026-01-02'</code> 时，Hive 只打开 <code class="inline">dt=2026-01-02/</code> 这一个目录，另外两个目录<b>压根不碰</b>。这叫<b>分区裁剪（partition pruning）</b>。</p>
+
+      <div class="callout ok"><b>裁剪的依据是"WHERE 里出现了分区字段"这个语义，与它写在 WHERE 的第几个位置无关。</b>
+        <p>很多人以为"分区条件要写前面"，那是 Oracle 时代留下的误解。<b>不写分区条件才是灾难</b>——那就是全表扫所有目录，分区白建了。</p>
+      </div>
+
+      <h3>静态分区导入</h3>
+
+<pre class="code"><span class="kw">LOAD DATA LOCAL INPATH</span> <span class="st">'/root/order_0101.txt'</span>
+<span class="kw">INTO TABLE</span> t_order <span class="kw">PARTITION</span> (dt=<span class="st">'2026-01-01'</span>);</pre>
+
+      <p><b>静态</b>的意思是：分区值由你手写指定。适合"一个文件正好属于一个分区"的场景。</p>
+
+      <div class="callout warn"><b>分区表不能用 <code class="inline">hadoop fs -put</code> 直接上传文件。</b>
+        <p>文件会落在表的根目录下，<code class="inline">dt=xxx</code> 子目录不会自动生成，<b>查询直接 0 行</b>。必须用 <code class="inline">LOAD DATA ... PARTITION</code>，或者手动建好目录再用 <code class="inline">MSCK</code> 修复（见 4.10）。</p>
+      </div>
+
+      <h3>多重分区</h3>
+
+<pre class="code"><span class="kw">PARTITIONED BY</span> (year <span class="kw">STRING</span>, month <span class="kw">STRING</span>, day <span class="kw">STRING</span>)</pre>
+
+<pre class="code">/t_order/year=2026/month=01/day=01/</pre>
+
+      <p>就是多级目录。<b>注意分区字段的顺序会影响目录层级</b>，实战中常见的组合是"先粗后细"（年/月/日、省/市），因为查询时通常先按粗粒度筛。</p>
+
+      <p class="muted small">（15、16、20 三集）</p>
+
+      <!-- ============ 4.8 ============ -->
+      <h2>4.8 动态分区：让 Hive 自己决定往哪写</h2>
+
+      <p>静态分区一次只能写一个分区。真实场景常常是"一份数据里混着几十个日期"，这时要用动态分区。</p>
+
+<pre class="code"><span class="cm">-- ① 必须先开参数（默认是 false，不开直接报错）</span>
+<span class="kw">SET</span> hive.exec.dynamic.partition = <span class="kw">true</span>;
+<span class="kw">SET</span> hive.exec.dynamic.partition.mode = nonstrict;
+
+<span class="cm">-- ② 分区值来自 SELECT 的最后一列</span>
+<span class="kw">INSERT INTO TABLE</span> t_order <span class="kw">PARTITION</span>(dt)
+<span class="kw">SELECT</span> order_id, amount, <span class="hl">dt</span> <span class="kw">FROM</span> t_order_tmp;</pre>
+
+      <div class="callout warn"><b>最致命的坑：分区字段必须是 SELECT 的<b>最后一列</b>。</b>
+        <p>Hive 是<b>按位置</b>匹配的，不是按名字。上面这句里，<code class="inline">SELECT</code> 出来的第 1 列给 <code class="inline">order_id</code>、第 2 列给 <code class="inline">amount</code>、<b>第 3 列给分区字段 <code class="inline">dt</code></b>。顺序错了不会报错，只会把数据写进错误的分区——<b>而且很难发现</b>。</p>
+      </div>
+
+      <p><b>另一个坑：默认分区数上限</b>。Hive 默认限制单次写入的动态分区数量，超了会失败：</p>
+
+<pre class="code"><span class="kw">SET</span> hive.exec.max.dynamic.partitions = 10000;              <span class="cm">-- 总上限</span>
+<span class="kw">SET</span> hive.exec.max.dynamic.partitions.pernode = 10000;     <span class="cm">-- 每个 MR 任务的上限</span></pre>
+
+      <p>两个要成对调大——只调一个，另一个还会拦你。</p>
+
+      <table>
+        <thead><tr><th></th><th>静态分区</th><th>动态分区</th></tr></thead>
+        <tbody>
+          <tr><td>分区值从哪来</td><td>手写常量</td><td><b>查询结果的最后一列</b></td></tr>
+          <tr><td>一次写几个分区</td><td>1 个</td><td>N 个（由数据决定）</td></tr>
+          <tr><td>要不要开参数</td><td>不要</td><td><b>要，三个</b></td></tr>
+          <tr><td>走不走 MR</td><td>不走（纯文件移动）</td><td><b>走</b>（要扫源表判断归属）</td></tr>
+          <tr><td>适用场景</td><td>文件与分区一一对应</td><td>数据混杂、量大</td></tr>
+        </tbody>
+      </table>
+
+      <p class="muted small">（18、19 两集）</p>
+
+      <!-- ============ 4.9 ============ -->
+      <h2>4.9 分桶表：<code class="inline">hash % N</code> 带来的三个推论</h2>
+
+      <p>分区是把数据拆成 <b>目录</b>，分桶是把数据拆成 <b>文件</b>。字段性质也不同：<b>分区字段是虚拟的（目录名），分桶字段是表里的真实字段。</b></p>
+
+<pre class="code"><span class="kw">CREATE TABLE</span> t_bucket (
+    id <span class="kw">INT</span>, name <span class="kw">STRING</span>, state <span class="kw">STRING</span>
+)
+<span class="kw">CLUSTERED BY</span> (state) <span class="kw">INTO</span> 5 <span class="kw">BUCKETS</span>          <span class="cm">-- 按 state 分 5 个桶</span>
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>;</pre>
+
+      <h3>数据怎么进桶</h3>
+
+<pre class="code"><span class="kw">SET</span> hive.enforce.bucketing = <span class="kw">true</span>;       <span class="cm">-- 必须开，否则桶数不对</span>
+
+<span class="kw">INSERT INTO TABLE</span> t_bucket
+<span class="kw">SELECT</span> id, name, state <span class="kw">FROM</span> t_source
+<span class="kw">CLUSTER BY</span> state;                        <span class="cm">-- 必须用 INSERT SELECT</span></pre>
+
+      <div class="callout warn"><b>分桶表的数据<b>只能</b>用 <code class="inline">INSERT ... SELECT</code> 导入，<code class="inline">LOAD DATA</code> 无效。</b>
+        <p>因为要过一遍 <code class="inline">hash % N</code> 才知道每行该进哪个文件，纯文件搬移做不到。落地后目录里是 <code class="inline">000000_0</code> ~ <code class="inline">000004_0</code> 五个文件。</p>
+      </div>
+
+      <h3>原理与三个推论</h3>
+
+<pre class="code">bucket_id = hash(分桶字段值) % 桶数</pre>
+
+      <p><b>举例</b>（3 个桶）：Tom 的 hash 是 7 → <code class="inline">7%3=1</code> → 1 号桶；rose 是 8 → 2 号桶；Jack 是 9 → 0 号桶。取模结果恒在 <code class="inline">0 ~ N-1</code>，永远不溢出。</p>
+
+      <div class="callout warn"><b>注意：分桶不是平均分。</b>桶内行数由哈希分布决定，两个不同的 key 也可能落到同一个桶。<b>所以分桶不能解决数据倾斜</b>——某个热点 key 在哪个桶，那个桶依然很大。</div>
+
+      <p>从"同一个 key 永远进同一个桶"这一点，能推出三件事：</p>
+
+      <table>
+        <thead><tr><th>推论</th><th>带来什么</th><th>前提</th></tr></thead>
+        <tbody>
+          <tr><td><b>① 同 key 同桶</b></td><td>JOIN 只需<b>桶对桶</b>比对，不用全量笛卡尔；小桶可装进内存退化成 Map Join，<b>省掉 reduce 端 shuffle</b></td><td>两表<b>同一 join key</b> 分桶、<b>桶数相同</b>（或整数倍）</td></tr>
+          <tr><td><b>② 数据被打散成 N 份</b></td><td>采样快：<code class="inline">TABLESAMPLE(BUCKET 1 OUT OF 5)</code> 直接取文件，读 1/5 数据即可，不用全表扫再 LIMIT</td><td>表已分桶</td></tr>
+          <tr><td><b>③ 桶内有序</b></td><td>可二分查找；两表同列 <code class="inline">SORTED BY</code> 时可做 <b>SMB Join</b>（归并即可，连哈希表都不用建）</td><td>建表时加了 <code class="inline">SORTED BY (col)</code></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>对哪些查询没提升</b>（这是常见误解）：普通的 <code class="inline">WHERE</code> 过滤、<code class="inline">GROUP BY</code> 聚合——这两类不会因为分了桶就变快。分桶只对"按分桶列做等值连接"和"抽样"有效。</p>
+
+      <p class="muted small">（21~24 四集；"对 group by 无提升"为补充澄清，课程原话有出入）</p>
+
+      <!-- ============ 4.10 ============ -->
+      <h2>4.10 表维护与数据进出</h2>
+
+      <h3><code class="inline">ALTER TABLE</code>：只改元数据，不动数据</h3>
+
+<pre class="code"><span class="kw">ALTER TABLE</span> t <span class="kw">RENAME TO</span> t_new;                        <span class="cm">-- 改表名</span>
+<span class="kw">ALTER TABLE</span> t <span class="kw">ADD COLUMNS</span> (city <span class="kw">STRING</span>);           <span class="cm">-- 加列（只能加末尾）</span>
+<span class="kw">ALTER TABLE</span> t <span class="kw">CHANGE COLUMN</span> age age2 <span class="kw">INT</span>;          <span class="cm">-- 改列名/类型</span>
+<span class="kw">ALTER TABLE</span> t <span class="kw">REPLACE COLUMNS</span> (id <span class="kw">INT</span>, name <span class="kw">STRING</span>);<span class="cm">-- 整表替换列</span>
+<span class="kw">ALTER TABLE</span> t <span class="kw">SET TBLPROPERTIES</span> (<span class="st">'k'</span>=<span class="st">'v'</span>);</pre>
+
+      <div class="callout warn"><b><code class="inline">ALTER TABLE</code> 一个字节的数据都不改，只改 MySQL 里的元数据。</b>
+        <p>后果很严重：你改了一个列名或类型，<b>旧分区里的文件还是旧格式</b>。下次查询会按新 schema 去读旧文件，结果要么全 <code class="inline">NULL</code>、要么数字全错——<b>能跑，但结果错</b>，这是最难发现的一类故障。</p>
+        <p>三条硬限制：<b>加列只能加在末尾</b>；<b>不能删单列，只能 <code class="inline">REPLACE COLUMNS</code></b>；<b>有数据时用 <code class="inline">AFTER</code> / <code class="inline">FIRST</code> 挪位置必报错</b>。所以字段顺序错了，正确做法是 <code class="inline">DROP</code> 重建表再灌一次，不是 ALTER 硬挪。</p>
+      </div>
+
+      <h3>修复分区：<code class="inline">MSCK REPAIR TABLE</code></h3>
+
+      <p>这是实战里每周都会遇到的场景。<b>数据已经在 HDFS 上按分区目录摆好了</b>（Flume 落的、Spark 写的、同事 <code class="inline">hdfs dfs -put</code> 上去的），你要建表挂上去：</p>
+
+<pre class="code">/user/hive/warehouse/itdkma/t_date_part/
+├── dt=20240425/data.txt
+├── dt=20240426/data.txt
+└── dt=20240427/data.txt</pre>
+
+<pre class="code"><span class="kw">CREATE EXTERNAL TABLE</span> t_date_part (
+    id <span class="kw">INT</span>, name <span class="kw">STRING</span>, age <span class="kw">INT</span>
+)
+<span class="kw">PARTITIONED BY</span> (dt <span class="kw">STRING</span>)
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>
+<span class="kw">LOCATION</span> <span class="st">'/user/hive/warehouse/itdkma/t_date_part'</span>;</pre>
+
+      <p>建完 <code class="inline">SHOW PARTITIONS</code> 一看——<b>空的</b>。查询 0 行。</p>
+
+      <div class="callout warn"><b>核心认知：HDFS 上有目录 ≠ Hive 里有分区。</b>
+        <p><code class="inline">LOCATION</code> 只是告诉 Hive"表的根目录在这儿"，它<b>不会去扫这个目录下有哪些子目录</b>，更不会自动注册成分区。metastore 的 <code class="inline">PARTITIONS</code> 表里一行记录都没有。</p>
+        <p>这是两套独立的东西，必须同步。同步命令：</p>
+<pre class="code"><span class="kw">MSCK REPAIR TABLE</span> t_date_part;</pre>
+        <p>执行完再 <code class="inline">SHOW PARTITIONS</code>，三个 <code class="inline">dt=...</code> 全部出现，立刻能查到数据。<b>它做得很快，因为它只操作元数据</b>——扫描 HDFS 目录、把缺失的分区信息补进 metastore。</p>
+      </div>
+
+      <p><b>两个限制</b>：<code class="inline">MSCK</code> <b>只补不删</b>（HDFS 上删了目录，metastore 里的分区记录还在，要用 <code class="inline">DROP PARTITION</code>）；目录名必须是 <code class="inline">字段=值</code> 的格式，写成 <code class="inline">dt_20240425</code> 这种会修不动，报 <code class="inline">code 1</code>——<b>九成的 <code class="inline">code 1</code> 是目录名不规范</b>（下划线代替等号、大小写不一致、带特殊字符）。</p>
+
+      <h3><code class="inline">LOAD DATA</code>：四种组合</h3>
+
+<pre class="code"><span class="kw">LOAD DATA</span> [<span class="kw">LOCAL</span>] <span class="kw">INPATH</span> <span class="st">'&lt;path&gt;'</span> [<span class="kw">OVERWRITE</span>] <span class="kw">INTO TABLE</span> tb
+[<span class="kw">PARTITION</span> (p1=v1)];</pre>
+
+      <table>
+        <thead><tr><th></th><th>写法</th><th>数据从哪来</th><th>源文件</th><th>目标表</th></tr></thead>
+        <tbody>
+          <tr><td>①</td><td><code class="inline">LOCAL ... INTO</code></td><td>客户端本地（Linux）</td><td><b>复制，保留</b></td><td>追加</td></tr>
+          <tr><td>②</td><td><code class="inline">LOCAL ... OVERWRITE</code></td><td>客户端本地</td><td><b>复制，保留</b></td><td>覆盖</td></tr>
+          <tr><td>③</td><td><code class="inline">INPATH ... INTO</code></td><td><b>HDFS</b></td><td><b>移动，消失</b></td><td>追加</td></tr>
+          <tr><td>④</td><td><code class="inline">INPATH ... OVERWRITE</code></td><td>HDFS</td><td><b>移动，消失</b></td><td>覆盖</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>最关键的一条：带 <code class="inline">LOCAL</code> 是 <code class="inline">cp</code>，不带 <code class="inline">LOCAL</code> 是 <code class="inline">mv</code>。</b>
+        <p>不带 <code class="inline">LOCAL</code> 时，<b>HDFS 上的源文件会被移走、消失</b>。由此产生两个真实事故：</p>
+        <p><b>①</b> 路径写成了别的表的数据目录 → 那张表的数据被"搬空"，Hive 不拦你，因为它认为你在移动文件，完全合法。<br>
+        <b>②</b> 源路径是多个作业共用的落地目录 → 第一个作业跑完文件就没了，后面的全读不到。<b>共用目录一律先 <code class="inline">cp</code> 一份再用。</b></p>
+      </div>
+
+      <p><b>追加 vs 覆盖</b>：追加<b>不去重</b>，跑两遍就有两份数据（文件名冲突时自动改名加后缀，不会覆盖）。<code class="inline">OVERWRITE</code> 对分区表是"<b>只覆盖指定分区</b>"，不影响其他分区——这点很关键，意味着可以按天重跑某个分区而不动历史。</p>
+
+      <h3>导出与多重插入</h3>
+
+<pre class="code"><span class="cm">-- 导出到 HDFS 目录（结果是多个文件，因为并行写）</span>
+<span class="kw">INSERT OVERWRITE DIRECTORY</span> <span class="st">'/export/out'</span>
+<span class="kw">ROW FORMAT DELIMITED FIELDS TERMINATED BY</span> <span class="st">','</span>
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> t_order;
+
+<span class="cm">-- 导出到本地目录要加 LOCAL（Hive 3 支持）</span>
+<span class="kw">INSERT OVERWRITE LOCAL DIRECTORY</span> <span class="st">'/root/out'</span> ...
+
+<span class="cm">-- 多重插入：一次扫描源表，写入多个目标表</span>
+<span class="kw">FROM</span> t_source
+<span class="kw">INSERT OVERWRITE TABLE</span> t_a <span class="kw">SELECT</span> id, name <span class="kw">WHERE</span> type=<span class="st">'a'</span>
+<span class="kw">INSERT OVERWRITE TABLE</span> t_b <span class="kw">SELECT</span> id, name <span class="kw">WHERE</span> type=<span class="st">'b'</span>;</pre>
+
+      <div class="callout ok"><b>多重插入解决的是"重复扫描"：</b>如果分两条 <code class="inline">INSERT ... SELECT</code> 写，源表要被扫两遍。多重插入只扫一遍，把结果分发给多个目标表——<b>源表越大，省得越多</b>。限制是必须配合 <code class="inline">FROM</code> 子句用（语法就是上面这个形状）。</div>
+
+      <h3>这一章的三条主线</h3>
+
+      <div class="callout ok">
+        <p><b>① 解析线（4.4 / 4.5）</b>：Hive 的表是虚拟的，<code class="inline">ROW FORMAT</code> 就是 SerDe 配置。默认分隔符是 <code class="inline">\001</code>，配错的表现是"只有第一列有值、不报错"。</p>
+        <p><b>② 归属线（4.6 / 4.7 / 4.9）</b>：内部表还是外部表决定 <code class="inline">DROP</code> 删不删数据；分区把数据切成目录（按目录裁剪）；分桶把数据切成文件（按 hash 对齐 join）。<b>分区是"少读"，分桶是"少算"。</b></p>
+        <p><b>③ 一致性线（4.2 / 4.10）</b>：元数据在 MySQL、数据在 HDFS，两套系统。乱码、<code class="inline">MSCK</code>、<code class="inline">ALTER</code> 只改元数据、<code class="inline">LOAD DATA</code> 的移动语义——<b>全都源于这两套系统不同步</b>。遇到"数据明明在却查不到 / 能跑但数字不对"，先想这一条。</p>
+      </div>
+
+      <p class="muted small">（25~31 七集；多重插入与导出的补充说明见各段）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c04-1" data-persist><span>能画出"库是 .db 目录、表是子目录、分区是 <code class="inline">col=val</code> 子目录"这张结构图，并用它解释"建表为什么瞬间完成""DROP 外部表为什么不丢数据"（4.1）</span></label>
+        <label><input type="checkbox" id="c04-2" data-persist><span>库的 DDL 五组操作会用；能讲清中文 COMMENT 乱码的根因在 MySQL 字符集、<b>且已变成问号的数据修不回来</b>，知道为什么改 hive-site.xml 无效（4.2）</span></label>
+        <label><input type="checkbox" id="c04-3" data-persist><span>建表六个部件各管什么说得清；原生类型 90% 用 STRING 的理由讲得出；三种复杂类型的访问语法不混（<code class="inline">arr[0]</code> / <code class="inline">m['k']</code> / <code class="inline">s.f</code>）（4.3）</span></label>
+        <label><input type="checkbox" id="c04-4" data-persist><span>能解释 <code class="inline">'1'=1</code> 为什么通常成立、<code class="inline">'1abc'=1</code> 返回 NULL 会造成什么静默事故（WHERE 丢行 / JOIN 匹配不上）（4.3）</span></label>
+        <label><input type="checkbox" id="c04-5" data-persist><span>SerDe 的读写方向不搞反（读=反序列化）；能说出 <code class="inline">ROW FORMAT</code> 就是 SerDe 配置、默认分隔符是 <code class="inline">\001</code>、分隔符配错的表现是"只有第一列有值"（4.4 / 4.5）</span></label>
+        <label><input type="checkbox" id="c04-6" data-persist><span>内部表与外部表的 <code class="inline">DROP</code> 差异说得清，能给出生产选型标准（原始数据用外部表、中间结果用内部表）及其理由（4.6）</span></label>
+        <label><input type="checkbox" id="c04-7" data-persist><span>知道分区字段是目录名不是真实列、不能与表字段重名；能解释分区裁剪的依据是"WHERE 里出现分区字段"而非书写位置；知道分区表不能用 <code class="inline">hdfs -put</code>（4.7）</span></label>
+        <label><input type="checkbox" id="c04-8" data-persist><span>动态分区三个参数会开；记得<b>分区字段必须是 SELECT 最后一列</b>（按位置匹配，顺序错不报错但数据写错分区）（4.8）</span></label>
+        <label><input type="checkbox" id="c04-9" data-persist><span>分桶公式 <code class="inline">hash % N</code> 与三个推论（桶对齐 join / 采样 / SORTED BY 归并）讲得清；知道分桶不能解决数据倾斜、对 group by 无提升（4.9）</span></label>
+        <label><input type="checkbox" id="c04-10" data-persist><span>遇到"HDFS 有目录但 Hive 查不到"能立刻想到 <code class="inline">MSCK REPAIR TABLE</code>；<code class="inline">LOAD DATA</code> 四种组合的复制/移动语义说得清；知道 <code class="inline">ALTER</code> 只改元数据会导致旧数据按新 schema 读错（4.10）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 04 章 · 由 30 个视频（5.1 小时）提炼 · 2026-11</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

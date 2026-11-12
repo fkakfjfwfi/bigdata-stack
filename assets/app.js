@@ -1,7 +1,7 @@
 /* 大数据技术栈 · 共享脚本：侧边章节高亮 + 打卡进度持久化（localStorage） */
 (function () {
   var KEY = 'spiderAdvancedProgress';
-  var TOTALS = { c01: 8, c02: 9 }; // 每章打卡点数，随章节增加而扩充
+  var TOTALS = { c01: 8, c02: 9, c03: 8, c04: 10, c05: 9, c06: 8, c07: 8, c08: 8, c09: 9 }; // 每章打卡点数，随章节增加而扩充
 
   function load() {
     try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }

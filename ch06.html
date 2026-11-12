@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>06 · Hive 高级查询 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c06">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch05.html" data-nav="c05">← 上一章</a>
+      <a href="ch06.html" data-nav="c06" class="active">第 06 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第二阶段 · Hive / <b>06 · Hive 高级查询</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <a href="ch02.html" data-nav="c02"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <div class="grp">🐝 Hive 阶段</div>
+      <a href="ch03.html" data-nav="c03"><span class="no">03</span>Hive 数仓构建 <span class="pg" data-chapter-progress="c03">0/8</span></a>
+      <a href="ch04.html" data-nav="c04"><span class="no">04</span>Hive 基础知识 <span class="pg" data-chapter-progress="c04">0/10</span></a>
+      <a href="ch05.html" data-nav="c05"><span class="no">05</span>Hive 查询操作 <span class="pg" data-chapter-progress="c05">0/9</span></a>
+      <a href="ch06.html" data-nav="c06" class="active"><span class="no">06</span>Hive 高级查询 <span class="pg" data-chapter-progress="c06">0/8</span></a>
+      <div class="grp">⚙️ 计算引擎</div>
+      <a href="ch07.html" data-nav="c07"><span class="no">07</span>MapReduce 与 YARN <span class="pg" data-chapter-progress="c07">0/8</span></a>
+      <div class="grp">🛡️ 高可用</div>
+      <a href="ch08.html" data-nav="c08"><span class="no">08</span>ZooKeeper 与高可用 <span class="pg" data-chapter-progress="c08">0/8</span></a>
+      <div class="grp">🚀 优化</div>
+      <a href="ch09.html" data-nav="c09"><span class="no">09</span>Hive 存储压缩与优化 <span class="pg" data-chapter-progress="c09">0/9</span></a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 13 天 · 18 个有效视频 · 3.0 小时</span>
+        <h1>06 · Hive 高级查询</h1>
+        <p class="sub">这一章教三样"不会就写不出来"的东西：<b>把一行拆成多行</b>（explode + 侧视图）、<b>把多行合成一行</b>（行列转换）、<b>在不聚合的前提下加汇总列</b>（窗口函数）。三者的共同点是——<b>语法都短，但用错方式不会报错，只是结果不对</b>。窗口函数那部分尤其如此，一个默认窗口值能让你算出来的累计数全错。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 13 天（18 个有效视频，另有 1 个"回顾"和 1 个"扩展"已跳过）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>6.7</b> 里 <code class="inline">NTILE</code> 那一集的音轨几乎无声（只转出开头 14 秒），该小节按 <code class="inline">NTILE</code> 标准语义整理并已核对，不是课程原话；其余各节均来自完整转写。<b>窗口函数的默认窗口行为</b>在各版本一致，可放心照用。</span>
+        </div>
+      </section>
+
+      <!-- ============ 6.1 ============ -->
+      <h2>6.1 explode：一行变多行，以及它的硬限制</h2>
+
+      <p><code class="inline">explode</code> 是 UDTF（一行进、多行出），只能处理两种输入：</p>
+
+      <table>
+        <thead><tr><th>输入</th><th>输出</th><th>示例</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">array</code></td><td>每个元素一行，<b>单列</b></td><td><code class="inline">["a","b"]</code> → 两行</td></tr>
+          <tr><td><code class="inline">map</code></td><td>每个键值对一行，<b>两列</b>（key, value）</td><td><code class="inline">{"k1":1,"k2":2}</code> → 两行两列</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>硬限制：<code class="inline">SELECT</code> 里不能同时出现 <code class="inline">explode</code> 和普通列。</b>
+        <p>下面这句<b>直接报错</b>，不是风格问题：</p>
+<pre class="code"><span class="cm">-- ❌ 报错</span>
+<span class="kw">SELECT</span> team_name, <span class="kw">explode</span>(championship_year) <span class="kw">FROM</span> nba;</pre>
+        <p>原因：UDTF 返回的是一张"虚拟表"，里面只有炸出来的那一列。<b>原表的 <code class="inline">team_name</code> 不在那张虚拟表里</b>，没法一起 select。</p>
+        <p>解法就是下一节的 <code class="inline">LATERAL VIEW</code>——把原表和虚拟表关联起来。</p>
+      </div>
+
+      <p class="muted small">（01 · 全篇）</p>
+
+      <!-- ============ 6.2 ============ -->
+      <h2>6.2 LATERAL VIEW：三个名字别搞混</h2>
+
+<pre class="code"><span class="kw">SELECT</span> a.team_name, b.year
+<span class="kw">FROM</span> the_nba_championship a
+<span class="kw">LATERAL VIEW</span> <span class="kw">explode</span>(a.championship_year) b <span class="kw">AS</span> year;</pre>
+
+      <table>
+        <thead><tr><th>位置</th><th>是什么</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">a</code></td><td><b>原表别名</b></td><td>用来引用原表字段，如 <code class="inline">a.team_name</code></td></tr>
+          <tr><td><code class="inline">b</code></td><td><b>虚拟表别名</b>（不是列名！）</td><td><code class="inline">explode</code> 生成的那张表的表名</td></tr>
+          <tr><td><code class="inline">AS year</code></td><td><b>列别名</b></td><td>虚拟表里那一列的名字；<b>map 要写成 <code class="inline">AS k, v</code></b></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>关联条件不用写 <code class="inline">ON</code></b>——侧视图会自动拿"被炸的那一列"和"炸出的每个值"做匹配。<code class="inline">1991</code> 出现在数组里，就把这条记录和 <code class="inline">1991</code> 拼成一行。</p>
+
+      <h3><code class="inline">OUTER</code>：空数组时的生死差别</h3>
+
+      <div class="callout warn"><b>这是本节最容易错、后果最隐蔽的一点。</b>
+        <p>默认的 <code class="inline">LATERAL VIEW</code> 是<b>内连接语义</b>——数组为 NULL 或空数组的行，<b>整行会被丢掉</b>。</p>
+<pre class="code"><span class="cm">-- 默认：空数组的行消失</span>
+<span class="kw">SELECT</span> a.id, b.tag <span class="kw">FROM</span> t a
+<span class="kw">LATERAL VIEW</span> <span class="kw">explode</span>(a.tags) b <span class="kw">AS</span> tag;
+
+<span class="cm">-- OUTER：保留该行，tag 位置补 NULL</span>
+<span class="kw">SELECT</span> a.id, b.tag <span class="kw">FROM</span> t a
+<span class="kw">LATERAL VIEW OUTER</span> <span class="kw">explode</span>(a.tags) b <span class="kw">AS</span> tag;</pre>
+        <p><b>后果</b>：对账类需求（"总用户数 = 各标签用户数之和"）如果忘了 <code class="inline">OUTER</code>，少几个空标签的用户，总数永远对不上，而且极难排查——因为 SQL 不报错。</p>
+        <p>判断标准很简单：<b>这批数据的每一行都必须出现在结果里吗？是，就加 OUTER。</b></p>
+      </div>
+
+      <p class="muted small">（03、07 两集）</p>
+
+      <!-- ============ 6.3 ============ -->
+      <h2>6.3 行列转换：方向别搞反</h2>
+
+      <p>这一节的核心是<b>两个方向的记忆抓手</b>：</p>
+
+      <table>
+        <thead><tr><th>名称</th><th>形态变化</th><th>本质</th><th>手段</th></tr></thead>
+        <tbody>
+          <tr><td><b>行转列</b>（多行转单列）</td><td>多行 → 一行（多列）</td><td><b>聚合 / 收拢</b></td><td><code class="inline">GROUP BY</code> + <code class="inline">collect_list</code> + <code class="inline">concat_ws</code></td></tr>
+          <tr><td><b>列转行</b>（单列转多行）</td><td>一行（多列）→ 多行</td><td><b>展开 / 打散</b></td><td><code class="inline">split</code> + <code class="inline">explode</code> + <code class="inline">LATERAL VIEW</code></td></tr>
+        </tbody>
+      </table>
+
+      <p><b>口诀：收用聚合，散用 explode。</b></p>
+
+      <h3>为什么别的函数不行</h3>
+
+      <p>课程花了不少时间做排除，这个过程值得记，因为它解释了"为什么必须是这两个函数组合"：</p>
+
+      <table>
+        <thead><tr><th>尝试</th><th>为什么不行</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">DISTINCT</code></td><td>能去重，<b>不能合并</b>——<code class="inline">1,2,3</code> 还是三行</td></tr>
+          <tr><td><code class="inline">ROW_NUMBER()</code></td><td>按分组取 <code class="inline">rn=1</code>，剩下的 <code class="inline">2,3</code> <b>直接丢了</b></td></tr>
+          <tr><td><code class="inline">GROUP BY</code></td><td>能分组，但 <code class="inline">SELECT</code> 里只能放分组字段或<b>聚合函数</b></td></tr>
+          <tr><td><code class="inline">concat</code></td><td><b>不是聚合函数</b>，放进 <code class="inline">GROUP BY</code> 的 select 里会报"字段不在 GROUP BY 中"</td></tr>
+        </tbody>
+      </table>
+
+      <p>结论：<b>必须先"把多行收集成数组"（聚合函数），再"把数组拼成字符串"（字符串函数）</b>。两步缺一不可。</p>
+
+      <h3><code class="inline">concat</code> 与 <code class="inline">concat_ws</code></h3>
+
+<pre class="code"><span class="kw">SELECT</span> <span class="kw">concat</span>(<span class="st">'A'</span>, <span class="kw">NULL</span>, <span class="st">'C'</span>);              <span class="cm">-- NULL（任一为 NULL，整体 NULL）</span>
+<span class="kw">SELECT</span> <span class="kw">concat_ws</span>(<span class="st">','</span>, <span class="st">'hello'</span>, <span class="kw">NULL</span>, <span class="st">'world'</span>);<span class="cm">-- hello,world（自动跳过 NULL）</span></pre>
+
+      <div class="callout warn"><b>差别只有一条，但很致命：<code class="inline">concat</code> 遇 NULL 全盘皆输。</b>
+        <p>生产里拼字符串<b>一律优先 <code class="inline">concat_ws</code></b>——它的第一个参数是分隔符，且自动跳过 NULL。用 <code class="inline">concat</code> 拼十个字段，只要有一个是 NULL，整列全变 NULL，而且不报错。</p>
+      </div>
+
+      <h3><code class="inline">collect_list</code> 与 <code class="inline">collect_set</code></h3>
+
+<pre class="code"><span class="cm">-- 数据：A,B,1 / A,B,2 / A,B,3 / C,D,4 / C,D,5 / C,D,6</span>
+<span class="kw">SELECT</span> <span class="kw">collect_list</span>(c1) <span class="kw">FROM</span> r2c2;   <span class="cm">-- ["A","A","A","C","C","C"]  保留重复、有序</span>
+<span class="kw">SELECT</span> <span class="kw">collect_set</span>(c1)  <span class="kw">FROM</span> r2c2;   <span class="cm">-- ["A","C"]                  去重、无序</span></pre>
+
+      <p><b>选哪个看业务</b>：要"用户看过哪些商品（含重复次数）"用 <code class="inline">collect_list</code>；要"用户涉及哪些品类（去重）"用 <code class="inline">collect_set</code>。</p>
+
+      <h3>多行转单列：完整 SQL 与那个 <code class="inline">CAST</code></h3>
+
+<pre class="code"><span class="kw">SELECT</span>
+    c1,
+    c2,
+    <span class="kw">concat_ws</span>(<span class="st">','</span>, <span class="kw">collect_list</span>(<span class="kw">CAST</span>(c3 <span class="kw">AS</span> <span class="kw">STRING</span>))) <span class="kw">AS</span> c3
+<span class="kw">FROM</span> r2c2
+<span class="kw">GROUP</span> <span class="kw">BY</span> c1, c2;</pre>
+
+      <div class="callout warn"><b><code class="inline">CAST(c3 AS STRING)</code> 不能省。</b>
+        <p>建表时 <code class="inline">c3</code> 是 <code class="inline">INT</code>，<code class="inline">collect_list(c3)</code> 收回来是 <code class="inline">array&lt;int&gt;</code>——<b>元素仍然是 int</b>。而 <code class="inline">concat_ws</code> 只能拼字符串，喂 <code class="inline">array&lt;int&gt;</code> 直接类型不匹配报错。</p>
+        <p>这是 05 集里唯一的坑，也是这类写法最高频的报错。<b>记忆：<code class="inline">collect_list</code> 会保留元素原类型，拼字符串前先 CAST。</b></p>
+      </div>
+
+      <h3>单列转多行</h3>
+
+<pre class="code"><span class="cm">-- 一行 "1,2,3" → 三行</span>
+<span class="kw">SELECT</span> a.id, b.v
+<span class="kw">FROM</span> t a
+<span class="kw">LATERAL VIEW</span> <span class="kw">explode</span>(<span class="kw">split</span>(a.vals, <span class="st">','</span>)) b <span class="kw">AS</span> v;</pre>
+
+      <p><b>注意顺序：先 <code class="inline">split</code> 再 <code class="inline">explode</code></b>。字符串不能直接 explode，必须先切成数组——这是很多人第一次写时卡住的地方。</p>
+
+      <p class="muted small">（04、05、06 三集）</p>
+
+      <!-- ============ 6.4 ============ -->
+      <h2>6.4 JSON 三种处理方式</h2>
+
+      <p>现在接口数据基本都是 JSON，这一节是日常用得最多的。三种方法各有明确适用面：</p>
+
+      <table>
+        <thead><tr><th>方法</th><th>一次取几个字段</th><th>能不能当表用</th><th>适用场景</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">get_json_object</code></td><td><b>1 个</b></td><td>不能（普通 UDF，返回 STRING）</td><td>只要少数几个字段；<b>要把解析结果放进 WHERE / ORDER BY 做过滤排序</b></td></tr>
+          <tr><td><code class="inline">json_tuple</code></td><td><b>多个</b></td><td>能（UDTF，<b>必须配 LATERAL VIEW</b>）</td><td>一次要拆 4~5 个字段，想把 JSON 变成"多列"</td></tr>
+          <tr><td><code class="inline">JSONSerDe</code></td><td>全部列</td><td>建表时就是表结构</td><td>文件还没入表；<b>最省事最快</b>，一行一个 JSON 直接落地</td></tr>
+        </tbody>
+      </table>
+
+      <h3><code class="inline">get_json_object</code>：<code class="inline">$. </code> 路径语法</h3>
+
+<pre class="code"><span class="kw">SELECT</span> <span class="kw">get_json_object</span>(json_str, <span class="st">'$.name'</span>)              <span class="cm">-- 一级字段</span>
+<span class="kw">SELECT</span> <span class="kw">get_json_object</span>(json_str, <span class="st">'$.store.book[0].title'</span>) <span class="cm">-- 嵌数组</span>
+<span class="kw">SELECT</span> <span class="kw">get_json_object</span>(json_str, <span class="st">'$.items[*].id'</span>)        <span class="cm">-- 数组全部（返回 JSON 数组串）</span></pre>
+
+      <h3><code class="inline">json_tuple</code>：一次多字段</h3>
+
+<pre class="code"><span class="kw">SELECT</span> a.id, b.name, b.age
+<span class="kw">FROM</span> t a
+<span class="kw">LATERAL VIEW</span> <span class="kw">json_tuple</span>(a.json_str, <span class="st">'name'</span>, <span class="st">'age'</span>) b <span class="kw">AS</span> name, age;</pre>
+
+      <p>注意它<b>不写 <code class="inline">$.</code></b>，直接给 key；列别名要和 key 数量对齐。</p>
+
+      <h3><code class="inline">JSONSerDe</code>：建表时就解析</h3>
+
+<pre class="code"><span class="kw">CREATE TABLE</span> t_json (
+    name <span class="kw">STRING</span>,
+    age  <span class="kw">INT</span>
+)
+<span class="kw">ROW FORMAT SERDE</span> <span class="st">'org.apache.hadoop.hive.serde2.JsonSerDe'</span>
+<span class="kw">STORED AS</span> TEXTFILE;
+
+<span class="cm">-- 数据文件：一行一个完整 JSON，字段名与列名一致</span>
+<span class="cm">-- {"name":"张三","age":20}</span>
+<span class="cm">-- {"name":"李四","age":21}</span></pre>
+
+      <div class="callout ok"><b>选型判断：能改建表就用 JSONSerDe，不能改表就用 json_tuple，只要一两个字段做过滤就用 get_json_object。</b>
+        <p>按这个顺序选，基本不会错。反过来（一上来就 <code class="inline">get_json_object</code> 拆十个字段）会让 SQL 长到没法维护。</p>
+      </div>
+
+      <div class="callout warn"><b>三者取不到值时都返回 NULL，不报错。</b>
+        <p>所以字段名大小写写错、路径写错，表现是"整列为空"而不是报错。<b>遇到 JSON 解析后整列 NULL，先核对 key 的名字和层级</b>，别怀疑数据。</p>
+      </div>
+
+      <p class="muted small">（08、09、10 三集）</p>
+
+      <!-- ============ 6.5 ============ -->
+      <h2>6.5 窗口函数：OVER 里其实是三件事</h2>
+
+      <p>先看它和 <code class="inline">GROUP BY</code> 的本质差别：</p>
+
+      <table>
+        <thead><tr><th></th><th><code class="inline">GROUP BY</code></th><th>窗口函数</th></tr></thead>
+        <tbody>
+          <tr><td>输出行数</td><td>多行压成一行</td><td><b>保留每一行原样</b></td></tr>
+          <tr><td>其他字段</td><td><b>全丢</b>（只能出现在聚合里）</td><td><b>全部保留</b></td></tr>
+          <tr><td>典型用途</td><td>统计汇总</td><td>在明细旁边加一列汇总值（占比、累计、排名）</td></tr>
+        </tbody>
+      </table>
+
+      <p>窗口函数的形态是 <code class="inline">函数(...) OVER (...)</code>，函数可以是聚合（<code class="inline">SUM/AVG/COUNT</code>）、排名（<code class="inline">ROW_NUMBER</code>）或分析（<code class="inline">LAG/NTILE</code>）。</p>
+
+      <div class="callout warn"><b><code class="inline">OVER()</code> 括号里能写三样东西，这是三件独立的事——90% 的结果不符预期都是漏了第三件。</b>
+        <table>
+          <thead><tr><th>子句</th><th>管什么</th><th>不写会怎样</th></tr></thead>
+          <tbody>
+            <tr><td><code class="inline">PARTITION BY</code></td><td><b>分几组</b>（组内独立计算）</td><td>整表当一组</td></tr>
+            <tr><td><code class="inline">ORDER BY</code></td><td>组内<b>怎么排</b>（决定"前/后"是谁）</td><td>无序，不能写 <code class="inline">PRECEDING/FOLLOWING</code></td></tr>
+            <tr><td><code class="inline">ROWS / RANGE BETWEEN</code></td><td>每行<b>看多大范围</b></td><td><b>默认 <code class="inline">RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code></b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><b>三种典型写法</b>，记住它们的差别就掌握了八九成：</p>
+
+<pre class="code"><span class="cm">-- ① OVER() 空着 = 整表一个窗口</span>
+<span class="kw">SELECT</span> cookieid, pv, <span class="kw">SUM</span>(pv) <span class="kw">OVER</span>() <span class="kw">AS</span> total_pv <span class="kw">FROM</span> t;
+<span class="cm">-- 每行都挂上"全站总 PV"，用于算占比</span>
+
+<span class="cm">-- ② 加 PARTITION BY = 每个用户一个窗口</span>
+<span class="kw">SELECT</span> cookieid, pv,
+       <span class="kw">SUM</span>(pv) <span class="kw">OVER</span> (<span class="kw">PARTITION BY</span> cookieid) <span class="kw">AS</span> user_total
+<span class="kw">FROM</span> t;
+<span class="cm">-- 每行挂上"这个用户的总 PV"</span>
+
+<span class="cm">-- ③ 再加 ORDER BY = 组内累计（这才是最常见的用法）</span>
+<span class="kw">SELECT</span> cookieid, createtime, pv,
+       <span class="kw">SUM</span>(pv) <span class="kw">OVER</span> (<span class="kw">PARTITION BY</span> cookieid <span class="kw">ORDER BY</span> createtime) <span class="kw">AS</span> running_total
+<span class="kw">FROM</span> t;
+<span class="cm">-- 每行挂上"这个用户到这一刻为止的累计 PV"</span></pre>
+
+      <h3>边界术语</h3>
+
+      <table>
+        <thead><tr><th>写法</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">UNBOUNDED PRECEDING</code></td><td>组内<b>第一行</b>（往上到头）</td></tr>
+          <tr><td><code class="inline">UNBOUNDED FOLLOWING</code></td><td>组内<b>最后一行</b>（往下到底）</td></tr>
+          <tr><td><code class="inline">n PRECEDING</code> / <code class="inline">n FOLLOWING</code></td><td>往上 / 往下数 n 行</td></tr>
+          <tr><td><code class="inline">CURRENT ROW</code></td><td>当前行本身</td></tr>
+        </tbody>
+      </table>
+
+      <p><code class="inline">ROWS BETWEEN A AND B</code> 里 <b>A 是上界（更早）、B 是下界（更晚），写反直接报错</b>。</p>
+
+      <p class="muted small">（11、12、13 三集）</p>
+
+      <!-- ============ 6.6 ============ -->
+      <h2>6.6 ROWS 与 RANGE：一个按行、一个按值</h2>
+
+      <p>这是全章最容易错的地方，课程花了 13 分钟讲它，值得完整看一遍。</p>
+
+      <div class="callout ok"><b>一句话分清：</b>
+        <p><code class="inline">ROWS</code> 按<b>物理行号</b>框——只数"上几行、下几行"，<b>跟值是多少完全无关</b>。<br>
+        <code class="inline">RANGE</code> 按 <code class="inline">ORDER BY</code> 那一列的<b>值</b>框——<code class="inline">n PRECEDING</code> 表示"值 ≥ 当前值 − n"。</p>
+      </div>
+
+      <h3>一组实验数据看明白</h3>
+
+      <p>表里只有一列 <code class="inline">id</code>，值是 <b>1, 3, 5, 7, 9</b>（奇数，不连续）。行号却是连续的 1~5——<b>这个错位就是全部玄机</b>。</p>
+
+<pre class="code"><span class="kw">SELECT</span> id,
+       <span class="kw">SUM</span>(id) <span class="kw">OVER</span> (<span class="kw">ORDER BY</span> id <span class="kw">ROWS</span>  <span class="kw">BETWEEN</span> 1 <span class="kw">PRECEDING AND</span> 1 <span class="kw">FOLLOWING</span>) <span class="kw">AS</span> rows_sum,
+       <span class="kw">SUM</span>(id) <span class="kw">OVER</span> (<span class="kw">ORDER BY</span> id <span class="kw">RANGE</span> <span class="kw">BETWEEN</span> 1 <span class="kw">PRECEDING AND</span> 1 <span class="kw">FOLLOWING</span>) <span class="kw">AS</span> range_sum
+<span class="kw">FROM</span> t1;</pre>
+
+      <table>
+        <thead><tr><th>id</th><th>rows_sum</th><th>range_sum</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><b>4</b></td><td>1</td><td>ROWS：上一行+自己+下一行 = 1+3；RANGE：值在 [0,2] 的只有 1</td></tr>
+          <tr><td>3</td><td><b>9</b></td><td>3</td><td>ROWS：1+3+5；RANGE：值在 [2,4] 的只有 3（2 和 4 不存在）</td></tr>
+          <tr><td>5</td><td><b>15</b></td><td>5</td><td>ROWS：3+5+7；RANGE：[4,6] 只有 5</td></tr>
+          <tr><td>7</td><td><b>21</b></td><td>7</td><td>ROWS：5+7+9；RANGE：[6,8] 只有 7</td></tr>
+          <tr><td>9</td><td><b>16</b></td><td>9</td><td>ROWS：7+9；RANGE：[8,10] 只有 9</td></tr>
+        </tbody>
+      </table>
+
+      <p><code class="inline">rows_sum</code> 是标准的滑动窗口；<code class="inline">range_sum</code> 每一项都退化成"它自己"，因为相邻的偶数不存在。</p>
+
+      <h3>并列值时差异才真正伤人</h3>
+
+      <p>数据是 <code class="inline">[1, 3, 3, 3, 5]</code>，看中间那三个 <code class="inline">3</code>：</p>
+      <ul>
+        <li><code class="inline">ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING</code>：每个 <code class="inline">3</code> 只框自己 ±1 行，<b>三个结果各不相同</b>；</li>
+        <li><code class="inline">RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING</code>：值区间是 [2,4]，<b>三个 3 全在区间内</b>，所以都拿到 <code class="inline">3+3+3=9</code>。</li>
+      </ul>
+
+      <div class="callout warn"><b>默认窗口是 <code class="inline">RANGE</code>，不是 <code class="inline">ROWS</code>。</b>
+        <p>有 <code class="inline">ORDER BY</code> 但没写 <code class="inline">BETWEEN</code> 时，默认是：</p>
+<pre class="code"><span class="kw">RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</span></pre>
+        <p>这意味着——<b>如果 ORDER BY 的列有并列值，这些并列行会一起被算进当前窗口</b>。典型表现：按日期累计，同一天有 3 条记录时，<b>三条记录的累计值都等于"这一天结束时"的总数</b>，而不是逐条递增。</p>
+        <p>要严格逐行累加，必须显式写 <code class="inline">ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code>。</p>
+      </div>
+
+      <p class="muted small">（14 · 全篇）</p>
+
+      <!-- ============ 6.7 ============ -->
+      <h2>6.7 五个分析函数，各有一个坑</h2>
+
+      <h3>三大排名函数</h3>
+
+      <table>
+        <thead><tr><th>函数</th><th>并列</th><th>序号</th><th>两个 7 分并列第一时</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">ROW_NUMBER()</code></td><td>不并列，硬拆</td><td>连续</td><td>1, 2, 3, 4</td></tr>
+          <tr><td><code class="inline">RANK()</code></td><td>并列</td><td>跳号</td><td>1, 1, 3, 4</td></tr>
+          <tr><td><code class="inline">DENSE_RANK()</code></td><td>并列</td><td>不跳号</td><td>1, 1, 2, 3</td></tr>
+        </tbody>
+      </table>
+
+      <p>TopN 的写法在第 05 章 5.4 已经给过模板（<code class="inline">WITH + 排名列 + WHERE rn = N</code>），这里只补一句：<b>要包含并列必须用 RANK 或 DENSE_RANK</b>，用 <code class="inline">ROW_NUMBER</code> 会把并列的人硬拆成不同名次，那是业务错误而不是技术错误。</p>
+
+      <h3><code class="inline">NTILE(n)</code>：把数据切片</h3>
+
+<pre class="code"><span class="kw">SELECT</span> id, score,
+       <span class="kw">NTILE</span>(4) <span class="kw">OVER</span> (<span class="kw">ORDER BY</span> score <span class="kw">DESC</span>) <span class="kw">AS</span> quartile
+<span class="kw">FROM</span> t;</pre>
+
+      <p>把分区内数据按顺序切成 n 份，返回桶号（1~n）。<b>分不匀时前面的桶多一行</b>——100 行分 3 份是 34/33/33，不是 33.3。典型用途：四等分算分位数、把用户按消费额分层做 AB 测试。</p>
+
+      <h3><code class="inline">LAG</code> / <code class="inline">LEAD</code>：取前/后第 n 行</h3>
+
+<pre class="code"><span class="kw">SELECT</span> dt, amount,
+       <span class="kw">LAG</span>(amount, 1, 0) <span class="kw">OVER</span> (<span class="kw">ORDER BY</span> dt)  <span class="kw">AS</span> prev_amount,
+       amount - <span class="kw">LAG</span>(amount, 1, 0) <span class="kw">OVER</span> (<span class="kw">ORDER BY</span> dt) <span class="kw">AS</span> diff
+<span class="kw">FROM</span> t;</pre>
+
+      <p>三个参数：<b>取哪一列、往上几行、取不到时的默认值</b>。第三个参数很关键——不写默认返回 NULL，第一行相减就是 NULL，整列计算跟着变 NULL。<b>算同比环比、算两次行为的时间差，都靠它。</b></p>
+
+      <h3><code class="inline">FIRST_VALUE</code> / <code class="inline">LAST_VALUE</code>：那个必须知道的坑</h3>
+
+<pre class="code"><span class="cm">-- ❌ 这样写，last_val 永远等于当前行的值</span>
+<span class="kw">SELECT</span> id, val,
+       <span class="kw">LAST_VALUE</span>(val) <span class="kw">OVER</span> (<span class="kw">PARTITION BY</span> grp <span class="kw">ORDER BY</span> id) <span class="kw">AS</span> last_val
+<span class="kw">FROM</span> t;</pre>
+
+      <div class="callout warn"><b>原因就是 6.6 那个默认窗口：<code class="inline">RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</code>。</b>
+        <p>窗口的右边界是"当前行"，<code class="inline">LAST_VALUE</code> 取窗口内最后一个值，那当然就是当前行自己。</p>
+        <p><b>正确写法必须显式把右边界推到组尾：</b></p>
+<pre class="code"><span class="kw">SELECT</span> id, val,
+       <span class="kw">LAST_VALUE</span>(val) <span class="kw">OVER</span> (
+           <span class="kw">PARTITION BY</span> grp <span class="kw">ORDER BY</span> id
+           <span class="hl">ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING</span>
+       ) <span class="kw">AS</span> last_val
+<span class="kw">FROM</span> t;</pre>
+        <p>这一条不知道，会以为函数坏了。它和 6.6 是同一个知识点的两个表现——<b>默认窗口的右边界只到当前行</b>。</p>
+      </div>
+
+      <h3>这一章的五条主线</h3>
+
+      <div class="callout ok">
+        <p><b>① explode 线</b>：一行变多行；<b>不能与普通列同 select</b>，必须配侧视图；空数组要加 <code class="inline">OUTER</code> 否则丢行。</p>
+        <p><b>② 转换线</b>：收用聚合（<code class="inline">collect_list</code> + <code class="inline">concat_ws</code>），散用 explode（<code class="inline">split</code> 先切再炸）；<code class="inline">CAST</code> 别省。</p>
+        <p><b>③ JSON 线</b>：能改建表用 JSONSerDe，只要几个字段用 <code class="inline">get_json_object</code>，一次拆多列用 <code class="inline">json_tuple</code>。</p>
+        <p><b>④ 窗口线</b>：<code class="inline">OVER()</code> 三件事（分组 / 排序 / 范围）；<b>默认窗口右边界只到当前行</b>，这一条同时解释了 <code class="inline">RANGE</code> 的并列问题与 <code class="inline">LAST_VALUE</code> 的坑。</p>
+        <p><b>⑤ 判错线</b>：这一章所有错误都不报错。<b>看到"数量少了""累计值不对""最后一列等于当前行"，先回来看窗口范围和 OUTER。</b></p>
+      </div>
+
+      <p class="muted small">（15~18 四集）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c06-1" data-persist><span>知道 explode 只能吃 array/map，以及<b>为什么不能和普通列同时 select</b>（UDTF 返回的虚拟表里只有炸出来那一列）（6.1）</span></label>
+        <label><input type="checkbox" id="c06-2" data-persist><span>侧视图的三个名字分得清（原表别名 / 虚拟表别名 / 列别名）；<b>空数组不加 OUTER 会丢整行</b>这条能讲出后果（对账永远对不上）（6.2）</span></label>
+        <label><input type="checkbox" id="c06-3" data-persist><span>行转列与列转行的方向不搞反（收用聚合、散用 explode）；能说出 <code class="inline">DISTINCT / ROW_NUMBER / GROUP BY / concat</code> 各自为什么不行（6.3）</span></label>
+        <label><input type="checkbox" id="c06-4" data-persist><span><code class="inline">concat</code> 遇 NULL 全 NULL、<code class="inline">concat_ws</code> 跳过 NULL；<code class="inline">collect_list</code> 与 <code class="inline">collect_set</code> 的区别；<b><code class="inline">CAST(c3 AS STRING)</code> 为什么不能省</b>（6.3）</span></label>
+        <label><input type="checkbox" id="c06-5" data-persist><span>JSON 三法的选型判断说得清（能改建表 → JSONSerDe；一两个字段 → get_json_object；多列 → json_tuple）；知道取不到值返回 NULL 不报错（6.4）</span></label>
+        <label><input type="checkbox" id="c06-6" data-persist><span>能说出窗口函数与 <code class="inline">GROUP BY</code> 的本质差别（保留原行 vs 压成一行）；<b><code class="inline">OVER()</code> 里三件独立的事</b>都记得，尤其是第三件范围（6.5）</span></label>
+        <label><input type="checkbox" id="c06-7" data-persist><span><code class="inline">ROWS</code> 按行、<code class="inline">RANGE</code> 按值讲得透；知道<b>默认窗口是 RANGE 且右边界到当前行</b>，并列值时累计值会重复（6.6）</span></label>
+        <label><input type="checkbox" id="c06-8" data-persist><span>三个排名函数并列时差异不混；<code class="inline">NTILE</code> 分不匀时前面的桶多一行；<code class="inline">LAG</code> 第三个参数不写会怎样；<b><code class="inline">LAST_VALUE</code> 必须显式指定到组尾</b>（6.7）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 06 章 · 由 18 个视频（3.0 小时）提炼 · 2026-11</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

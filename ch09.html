@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>09 · Hive 存储压缩与优化 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c09">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch08.html" data-nav="c08">← 上一章</a>
+      <a href="ch09.html" data-nav="c09" class="active">第 09 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第四阶段 · 优化 / <b>09 · Hive 存储压缩与优化</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <a href="ch02.html" data-nav="c02"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <div class="grp">🐝 Hive 阶段</div>
+      <a href="ch03.html" data-nav="c03"><span class="no">03</span>Hive 数仓构建 <span class="pg" data-chapter-progress="c03">0/8</span></a>
+      <a href="ch04.html" data-nav="c04"><span class="no">04</span>Hive 基础知识 <span class="pg" data-chapter-progress="c04">0/10</span></a>
+      <a href="ch05.html" data-nav="c05"><span class="no">05</span>Hive 查询操作 <span class="pg" data-chapter-progress="c05">0/9</span></a>
+      <a href="ch06.html" data-nav="c06"><span class="no">06</span>Hive 高级查询 <span class="pg" data-chapter-progress="c06">0/8</span></a>
+      <div class="grp">⚙️ 计算引擎</div>
+      <a href="ch07.html" data-nav="c07"><span class="no">07</span>MapReduce 与 YARN <span class="pg" data-chapter-progress="c07">0/8</span></a>
+      <div class="grp">🛡️ 高可用</div>
+      <a href="ch08.html" data-nav="c08"><span class="no">08</span>ZooKeeper 与高可用 <span class="pg" data-chapter-progress="c08">0/8</span></a>
+      <div class="grp">🚀 优化</div>
+      <a href="ch09.html" data-nav="c09" class="active"><span class="no">09</span>Hive 存储压缩与优化 <span class="pg" data-chapter-progress="c09">0/9</span></a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 16 天 · 20 个有效视频 · 3.1 小时</span>
+        <h1>09 · Hive 存储压缩与优化</h1>
+        <p class="sub">这是全课程的压轴。前面八章讲"怎么用"，这一章讲"怎么让它快"。<b>优化的顺序有讲究</b>：先改存储格式（改一行建表语句，省 85% 空间且不损失速度），再治理小文件，然后才是调参数和改 SQL。<b>反过来做（一上来就调参数）往往白忙</b>——因为瓶颈根本不在那儿。这一章还给了一组实测数字，比任何"建议"都有说服力。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 16 天（20 个有效视频，另有 1 个"回顾"已跳过）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>9.3</b> 的实测数字来自课程环境（Hive 3.1.2 + 18.13 MB 样本），<b>倍数会随数据特征变化</b>，但"ORC 显著小于 TEXTFILE、且查询不变慢"这个结论是稳定的；<b>9.9</b> 的 JVM 重用在新版本里价值已下降（Tez/Uber 模式的普及），照做前先确认你的执行引擎。</span>
+        </div>
+      </section>
+
+      <!-- ============ 9.1 ============ -->
+      <h2>9.1 一条 SQL 怎么变成作业</h2>
+
+      <p>优化要先知道"钱花在哪"。Hive 收到一条 SQL 会经过四个组件：</p>
+
+<pre class="code">SQL → 解释器（Parser）→ 编译器（Compiler）→ 优化器（Optimizer）→ 执行器（Executor）
+       语法树            逻辑计划          物理计划（选 join 顺序、选执行引擎）   提交作业</pre>
+
+      <h3>各子句落到哪个阶段</h3>
+
+      <table>
+        <thead><tr><th>SQL 子句</th><th>变成什么</th><th>代价</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">WHERE</code></td><td><b>Map 端过滤</b>（谓词下推后连数据都不读）</td><td>低</td></tr>
+          <tr><td><code class="inline">SELECT</code> 少量列</td><td><b>列裁剪</b>（列式存储只读这几列）</td><td>低</td></tr>
+          <tr><td><code class="inline">GROUP BY</code></td><td>Map 预聚合 → <b>按 group key shuffle</b> → Reduce 聚合</td><td><b>高（shuffle）</b></td></tr>
+          <tr><td><code class="inline">JOIN</code></td><td>两表按 join key <b>shuffle</b>，或小表广播成 Map Join</td><td><b>最高</b></td></tr>
+          <tr><td><code class="inline">ORDER BY</code></td><td><b>收成 1 个 Reduce</b> 全局排序</td><td><b>极高</b></td></tr>
+          <tr><td><code class="inline">LIMIT</code></td><td>各 Map 各取 N 条即可，<b>不需要 Reduce</b></td><td>低</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>优化的本质就一句话：少读数据、少 shuffle。</b>
+        <p>表里六个子句，只有 <code class="inline">GROUP BY</code>、<code class="inline">JOIN</code>、<code class="inline">ORDER BY</code> 会产生 shuffle——它们对应 MR 里的分区和排序，要落磁盘、走网络。<b>而 <code class="inline">WHERE</code> 和列裁剪之所以最划算，是因为它们让数据"压根不进内存"。</b></p>
+        <p>所以优化优先级是：<b>能不读的别读（分区/列裁剪/谓词下推）＞ 能少搬的少搬（Map Join / 减少 reduce）＞ 最后才调参数。</b></p>
+      </div>
+
+      <p><b>还有一种情况：压根不起作业。</b>简单查询（<code class="inline">select * from t limit 10</code>）会走 <b>fetch task</b>，直接从 HDFS 读文件返回，不提交 MR——这就是为什么有些查询"秒回"。判断标准在后面 9.9 讲。</p>
+
+      <p class="muted small">（02 · 全篇；子句映射为补充整理）</p>
+
+      <!-- ============ 9.2 ============ -->
+      <h2>9.2 存储格式：行式与列式</h2>
+
+      <p>这是优化里<b>性价比最高的一步</b>——只改建表语句里的一个词，不用改任何 SQL。</p>
+
+      <h3>行式 vs 列式：本质差别在哪</h3>
+
+<pre class="code">行式（TEXTFILE）——按行连续存
+[id=1, name=张三, age=20] [id=2, name=李四, age=21] [id=3, ...]
+
+列式（ORC / PARQUET）——按列分别存
+id:   1, 2, 3, ...
+name: 张三, 李四, 王五, ...
+age:  20, 21, 22, ...</pre>
+
+      <div class="callout ok"><b>差别只在"只查少数几列"时才爆发。</b>
+        <p><code class="inline">SELECT age FROM t WHERE age &gt; 20</code>——行式必须把每行的 id、name 全读出来再丢掉（IO 浪费）；<b>列式只读 age 那一列</b>，其余列的字节一个都不碰。这叫<b>列裁剪（Column Pruning）</b>。</p>
+        <p>反过来，<code class="inline">SELECT * FROM t</code>（取所有列）时列式没优势——这也是为什么下一节那个 <code class="inline">count(*)</code> 实验里，三种格式耗时一样。</p>
+      </div>
+
+      <h3>五种格式对比</h3>
+
+      <table>
+        <thead><tr><th>格式</th><th>行/列</th><th>特点</th><th>用在哪</th></tr></thead>
+        <tbody>
+          <tr><td><b>TEXTFILE</b></td><td>行式</td><td>纯文本、人可读、不压缩；<b>唯一能直接 <code class="inline">LOAD DATA</code> 的格式</b></td><td>ODS 贴源层、要看原始数据时</td></tr>
+          <tr><td><b>ORC</b></td><td><b>列式</b>（stripe 内按列）</td><td>Hive 自家造的，压缩率最高、带索引、支持矢量化</td><td><b>Hive 数仓默认选它</b></td></tr>
+          <tr><td><b>PARQUET</b></td><td>列式</td><td>压缩率略低于 ORC，但<b>生态最广</b>（Spark / Presto / Impala 都友好）</td><td>Spark 为主的项目</td></tr>
+          <tr><td><b>SEQUENCEFILE</b></td><td>行式（二进制 KV）</td><td>Hadoop 早期格式，现在主要用来合并小文件</td><td>小文件治理</td></tr>
+          <tr><td><b>AVRO</b></td><td>行式</td><td>带 schema，适合写多读少的场景</td><td>少见</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>ORC / PARQUET 都不能 <code class="inline">LOAD DATA</code>，只能 <code class="inline">INSERT ... SELECT</code>。</b>
+        <p>因为要经过编码/序列化，纯文件搬移做不到。所以标准流程是：<b>先建 TEXTFILE 表 <code class="inline">LOAD DATA</code> 灌数据，再 <code class="inline">INSERT INTO ... SELECT</code> 导进 ORC 表</b>。</p>
+        <p>这是实操里最容易卡住的地方——直接往 ORC 表 <code class="inline">LOAD DATA</code> 会报错或数据读不出来。</p>
+      </div>
+
+      <h3>ORC 的特殊结构：stripe</h3>
+
+<pre class="code">ORC 文件
+├── Stripe 1（默认 250 MB）→ 内部按列存
+├── Stripe 2
+├── ...
+└── 文件尾部 metadata（<span class="hl">行组索引就存在这里</span>）</pre>
+
+      <p><b>ORC 是"有行有列"</b>：先按 stripe 横向切（一行记录不会跨 stripe），stripe 内部再按列纵向存。这个设计是下一节两级索引的基础——<b>索引建在 stripe 上</b>。</p>
+
+      <p class="muted small">（03 · 全篇；行式列式的读放大解释为补充）</p>
+
+      <!-- ============ 9.3 ============ -->
+      <h2>9.3 实测：18.13 MB 数据，三种格式打一架</h2>
+
+      <p>课程做了一个很干净的对照实验：<b>三张表结构完全一样，唯一差别是 <code class="inline">STORED AS</code> 后面那个词</b>，灌同一份 18.13 MB 的数据。</p>
+
+      <h3>体积对比</h3>
+
+      <table>
+        <thead><tr><th>存储格式</th><th>HDFS 实际占用</th><th>相对原始</th><th>压缩倍数</th></tr></thead>
+        <tbody>
+          <tr><td><b>TEXTFILE</b></td><td>18.13 MB</td><td>100%</td><td>1.0×（完全不压）</td></tr>
+          <tr><td><b>PARQUET</b></td><td>13.09 MB</td><td>72%</td><td>1.39×</td></tr>
+          <tr><td><b>ORC</b>（默认 ZLIB）</td><td><b>2.78 MB</b></td><td><b>15%</b></td><td><b>6.5×</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>ORC 比 TEXTFILE 省了 85% 存储，比 PARQUET 又小 4.7 倍。同一份数据、同样的 SQL、只改建表语句里的一个词。</b></div>
+
+      <h3>查询耗时对比</h3>
+
+      <table>
+        <thead><tr><th>表</th><th><code class="inline">select count(*)</code> 耗时</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">log_text</code></td><td>约 23 秒</td></tr>
+          <tr><td><code class="inline">log_orc</code></td><td>约 23 秒</td></tr>
+          <tr><td><code class="inline">log_parquet</code></td><td>约 23 秒</td></tr>
+        </tbody>
+      </table>
+
+      <p>三者基本一样。老师当场强调了这个"很神奇的事"：<b>文件小了 6 倍，查询速度却没变慢——说明 ORC 压缩不牺牲查询性能，纯粹是白赚的存储。</b></p>
+
+      <div class="callout warn"><b>但要注意：<code class="inline">count(*)</code> 看不出列式存储的真正优势。</b>
+        <p><code class="inline">count(*)</code> 要读所有列（甚至只读行数也行），<b>列裁剪完全用不上</b>。真正体现差距的是"只查少数几列"的查询——那种情况下 ORC 可能快几十倍，因为它的 IO 量只有行式的几分之一。</p>
+        <p><b>所以别拿 <code class="inline">count(*)</code> 的耗时去说服别人"列式没用"</b>，选错了测试用例。</p>
+      </div>
+
+      <h3>ORC 的三个压缩档位</h3>
+
+      <p>同一份数据，ORC 内部还能再分三档（课程实测）：</p>
+
+      <table>
+        <thead><tr><th>配置</th><th>体积</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>只列式编码、不压缩</td><td>7.73 MB</td><td><code class="inline">STORED AS ORC</code> 但关掉压缩</td></tr>
+          <tr><td><b>ZLIB（默认）</b></td><td><b>2.78 MB</b></td><td>压缩率高，速度慢一些</td></tr>
+          <tr><td>SNAPPY</td><td>3.78 MB</td><td>压缩率略低，<b>速度快</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout info"><b><code class="inline">STORED AS ORC</code> 和 <code class="inline">orc.compress</code> 是两件事。</b>
+        <p>前者只做"列式编码"（7.73 MB），后者决定用什么算法（ZLIB 得 2.78、SNAPPY 得 3.78）。<b>不指定算法不等于不压缩</b>——ORC 默认就用 ZLIB。</p>
+      </div>
+
+      <p class="muted small">（04、07 两集）</p>
+
+      <!-- ============ 9.4 ============ -->
+      <h2>9.4 压缩与切片的矛盾</h2>
+
+      <p>选压缩算法时，很多人只看"压缩比"。但有一个更硬的约束：<b>能不能切片（splittable）</b>。</p>
+
+      <table>
+        <thead><tr><th>算法</th><th>压缩比</th><th>速度</th><th><b>可切片</b></th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td>Gzip</td><td>高</td><td>中等偏慢</td><td><b>否</b></td><td>归档、冷数据</td></tr>
+          <tr><td>Bzip2</td><td><b>最高</b></td><td><b>最慢</b></td><td><b>否</b></td><td>极少用</td></tr>
+          <tr><td>LZO</td><td>中</td><td>快</td><td>是（需建索引）</td><td>曾经的主流</td></tr>
+          <tr><td><b>Snappy</b></td><td>中（略低于 Gzip）</td><td><b>极快</b></td><td><b>是</b></td><td><b>生产首选</b></td></tr>
+          <tr><td>ZLIB</td><td>高</td><td>慢</td><td>是</td><td>ORC 默认</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>为什么"可切片"这么重要——这条因果链必须讲清：</b>
+        <p><b>①</b> HDFS 上的文件要交给 Map 处理，每个 Map 处理一个"切片"。<br>
+        <b>②</b> 压缩文件如果不可切，<b>整个文件只能由一个 Map 处理</b>——一个 10 GB 的 gzip 文件，就只有一个 Map 在跑，集群有 100 台机器也帮不上忙。<br>
+        <b>③</b> 所以 <b>Snappy 的压缩率不是最高的，但它是生产首选</b>——因为它可切分，能把大文件拆给多个 Map 并行处理。</p>
+        <p><b>结论：选压缩算法时，先问"能不能切"，再问"压得狠不狠"。</b>压缩比高但不可切，在大数据场景下是负优化。</p>
+      </div>
+
+      <p><b>反过来说</b>：如果文件本身很小（小于一个块），或者不参与并行计算（只归档），那 Gzip 的高压缩比就有价值了。<b>所以选型要看场景，不是一刀切。</b></p>
+
+      <p class="muted small">（05 · 07:51–11:00；07 · 04:55）</p>
+
+      <!-- ============ 9.5 ============ -->
+      <h2>9.5 ORC 两级索引：为什么能"跳过 99% 的数据"</h2>
+
+      <p>这是全章最有技术含量的部分，也是 ORC 比 PARQUET 更快的关键。</p>
+
+      <h3>行组索引（Stripe Index）：管范围查询</h3>
+
+      <p><b>原理</b>：ORC 写每个 stripe 时会记录该 stripe 内每列的 <b>min / max / 行数 / 是否有 null</b>，存在文件尾部。查询时先读这些统计，<b>判断"这个 stripe 里根本不可能有我要的值"，直接跳过不读</b>。</p>
+
+<pre class="code">Stripe 1: id  1 ~ 25
+Stripe 2: id 26 ~ 50      <span class="cm">← 只有它可能命中</span>
+Stripe 3: id 51 ~ 75
+Stripe 4: id 76 ~ 100
+
+<span class="kw">select</span> * <span class="kw">from</span> log_orc <span class="kw">where</span> id &gt;= 30 <span class="kw">and</span> id &lt;= 40;
+<span class="cm">→ 只读 Stripe 2，其余 3 个直接跳过（IO 降到 1/4）</span></pre>
+
+      <p><b>关键</b>：这是 <b>IO 层面</b>的跳过——不是"读完再过滤"，是<b>压根不读</b>。所以 stripe 越多（文件越大）、过滤条件越窄，效果越明显。</p>
+
+      <h3>布隆索引（Bloom Filter）：管等值查询</h3>
+
+      <p><b>原理</b>：在指定列上建布隆过滤器，能快速判断"<b>这个 stripe 里肯定没有值 X</b>"，从而跳过。</p>
+
+      <div class="callout ok"><b>布隆过滤器的关键特性：可能误判"存在"，但绝不误判"不存在"。</b>
+        <p>所以它给出的结论只有两种：<br>
+        · "<b>肯定没有</b>" → <b>可靠</b>，可以安全跳过这个 stripe；<br>
+        · "可能存在" → <b>不可靠</b>，还得真去读一下确认。</p>
+        <p><b>正因为"证伪可靠、证真不可靠"，它才能安全地用在查询优化上</b>——跳过的一定是对的，没跳过的只是多读了一点，不影响结果正确性。这是它能在数据库里被广泛使用的根本原因。</p>
+      </div>
+
+      <h3>两者的分工</h3>
+
+      <table>
+        <thead><tr><th>索引</th><th>适合</th><th>判断依据</th><th>怎么用</th></tr></thead>
+        <tbody>
+          <tr><td><b>行组索引</b></td><td><b>范围查询</b>（<code class="inline">&gt;</code>、<code class="inline">&lt;</code>、<code class="inline">BETWEEN</code>）</td><td>min / max 与查询区间是否相交</td><td>默认就有（写文件时自动记录）</td></tr>
+          <tr><td><b>布隆索引</b></td><td><b>等值查询</b>（<code class="inline">=</code>、<code class="inline">IN</code>）</td><td>值是否可能在这个 stripe 里</td><td>要显式建：建表时指定 <code class="inline">'orc.bloom.filter.columns'='col1,col2'</code></td></tr>
+        </tbody>
+      </table>
+
+      <p>记忆：<b>范围靠 min/max（免费的），等值靠布隆（要显式建）</b>。</p>
+
+      <h3>矢量化查询</h3>
+
+      <p>一次处理<b>一批</b>（默认 1024 行）而不是一行，减少函数调用开销，还能利用 CPU 的 SIMD 指令。</p>
+
+      <p><b>为什么只有列式存储才能矢量化</b>：因为要"一次拿 1024 个同类型的值放进数组"，这要求这些值在磁盘上是连续存放的——<b>列式天然满足，行式做不到</b>（行式的 1024 行是交错的）。</p>
+
+      <p>开关：<code class="inline">hive.vectorized.execution.enabled</code>（Hive 2 之后默认开）。</p>
+
+      <p class="muted small">（09、10、11 三集；布隆特性的解释为补充）</p>
+
+      <!-- ============ 9.6 ============ -->
+      <h2>9.6 小文件治理</h2>
+
+      <p>第 02 章算过那笔账：每个文件在 NameNode 内存里约 <b>150 字节</b>，而 NameNode 的堆是有限的。千万级小文件就会把堆吃干。</p>
+
+      <p>但小文件在这里还有<b>第二重浪费</b>：</p>
+
+      <table>
+        <thead><tr><th>浪费</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><b>NameNode 内存</b></td><td>150 字节/文件，百万文件就是几百 MB 常驻堆</td></tr>
+          <tr><td><b>Map 任务数</b></td><td><b>一个文件至少一个 Map</b>——100 万个 1 KB 的文件要起 100 万个 Map 任务，每个任务的启动开销（几秒）远超处理那 1 KB 的收益</td></tr>
+        </tbody>
+      </table>
+
+      <h3>四种解法</h3>
+
+      <table>
+        <thead><tr><th>手段</th><th>怎么做</th><th>适用</th></tr></thead>
+        <tbody>
+          <tr><td><b>写入后自动合并</b></td><td><code class="inline">hive.merge.mapfiles=true</code>（只有 Map 任务时合并）<br><code class="inline">hive.merge.mapredfiles=true</code>（有 Reduce 时也合并）<br><code class="inline">hive.merge.smallfiles.avgsize</code> 设阈值</td><td>常规写入，最省事</td></tr>
+          <tr><td><b>调 reduce 数</b></td><td>输出文件数 = reduce 数，<code class="inline">SET mapreduce.job.reduces=N</code></td><td>能预估输出规模时</td></tr>
+          <tr><td><b><code class="inline">DISTRIBUTE BY</code> 控制分区</b></td><td>按某列分发，输出文件数 = 该列的不同值个数</td><td>想要"一类一个文件"</td></tr>
+          <tr><td><b><code class="inline">CONCATENATE</code></b></td><td><code class="inline">ALTER TABLE t CONCATENATE;</code></td><td><b>只对 ORC / RCFile 有效</b>，TEXTFILE 不行</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>两个容易忽略的点：</b>
+        <p><b>①</b> <code class="inline">hive.merge.mapfiles</code> 只在<b>纯 Map 任务</b>时生效。如果你的作业有 Reduce 阶段，光开这个没用，必须开 <code class="inline">hive.merge.mapredfiles</code>。</p>
+        <p><b>②</b> <code class="inline">CONCATENATE</code> 是<b>元数据层面</b>把多个小文件"逻辑拼接"成一个大文件（对 ORC 可行，因为 ORC 的 stripe 可以独立拼接），<b>不重写数据</b>，所以很快。但它对 TEXTFILE 无效——文本文件没法这么拼。</p>
+      </div>
+
+      <p class="muted small">（08 · 全篇；150 字节的账见第 02 章 2.3）</p>
+
+      <!-- ============ 9.7 ============ -->
+      <h2>9.7 两种 JOIN：差在要不要 shuffle</h2>
+
+      <p>JOIN 是 Hive 里最贵的操作，而它有两种截然不同的实现，<b>代价差一个数量级</b>。</p>
+
+      <table>
+        <thead><tr><th></th><th><b>Map Join</b></th><th><b>Reduce Join</b>（Common Join）</th></tr></thead>
+        <tbody>
+          <tr><td>怎么做</td><td><b>小表广播</b>到每个 Map 节点，在内存里建哈希表，边读大表边匹配</td><td>两表都按 join key 做 shuffle，相同 key 进同一个 Reduce 再拼</td></tr>
+          <tr><td>有 shuffle 吗</td><td><b>没有</b></td><td><b>有</b>（磁盘 + 网络双份开销）</td></tr>
+          <tr><td>前提</td><td>小表能装进内存（默认 <b>25 MB</b>）</td><td>无（任何规模都能跑）</td></tr>
+          <tr><td>快慢</td><td><b>快一个数量级</b></td><td>慢</td></tr>
+          <tr><td>怎么触发</td><td><code class="inline">hive.auto.convert.join=true</code>（默认开）；<b>小表写在前面</b>；或用 <code class="inline">/*+ MAPJOIN(小表) */</code></td><td>自动降级</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Reduce Join 的底细：一个 tag 字段撑起整个 join</h3>
+
+      <p>课程讲了这个机制，理解了它才知道 shuffle 贵在哪：</p>
+
+<pre class="code">两表在 Map 阶段各自打上来源标签：
+  A 表：&lt;key, (A, 其他字段)&gt;
+  B 表：&lt;key, (B, 其他字段)&gt;
+        ↓ 按 key shuffle（落磁盘 + 走网络）
+  Reduce 收到同一个 key 的全部记录，按 tag 分成两堆
+        ↓
+  两堆做笛卡尔积拼出结果</pre>
+
+      <div class="callout ok"><b>所以 Reduce Join 的本质是：用 shuffle 把"同一个 key 的两边记录"搬到一起，再用一个 tag 字段区分来源。</b>
+        <p>贵的原因很具体——<b>两表的数据都要完整地过一次磁盘和网络</b>。10 GB 对 10 GB 的 join，至少要写 20 GB 临时文件再读回来。</p>
+        <p>这也解释了为什么要做 <b>bucket map join</b>（第 04 章 4.9）：如果两表按 join key 分桶且桶数相同，<b>同 key 天然在同一个桶</b>，就不用全量 shuffle 了，直接桶对桶。</p>
+      </div>
+
+      <h3>大表 join 大表怎么办</h3>
+
+      <table>
+        <thead><tr><th>方案</th><th>前提</th></tr></thead>
+        <tbody>
+          <tr><td><b>Bucket Map Join</b></td><td>两表按 join key 分桶、桶数相同（或整数倍），小表桶能装进内存</td></tr>
+          <tr><td><b>SMB Join</b>（Sort-Merge-Bucket）</td><td>在上面的基础上再按同列 <code class="inline">SORTED BY</code>，可以归并而不用建哈希表 —— <b>Hive 里最快的 join</b></td></tr>
+          <tr><td>加大内存让 Map Join 能装下</td><td>调 <code class="inline">hive.mapjoin.smalltable.filesize</code>，但受物理内存限制</td></tr>
+          <tr><td>接受 Reduce Join</td><td>实在没条件时，只能优化 reduce 数、处理倾斜</td></tr>
+        </tbody>
+      </table>
+
+      <p class="muted small">（15、16 两集；桶 join 见第 04 章 4.9）</p>
+
+      <!-- ============ 9.8 ============ -->
+      <h2>9.8 Group By 原理与数据倾斜</h2>
+
+      <h3>三阶段</h3>
+
+<pre class="code">Map 端预聚合（Combiner）
+   ↓ 按 group key 分区
+Reduce 端聚合</pre>
+
+      <p><b>Map 端预聚合</b>是关键——如果 group key 重复度高（比如按城市分组，全国就几百个城市），Map 端就能把几百万行压成几百行再发出去，<b>shuffle 数据量降几个数量级</b>。</p>
+
+      <h3>倾斜：某个 key 太多</h3>
+
+      <div class="callout warn"><b>表现：8088 里大部分 reduce 已完成，剩一两个卡在 99% 长时间不动。</b>
+        <p>原因：某个 key 的记录数远超其他（比如 <code class="inline">NULL</code>、空串、默认值 <code class="inline">-1</code>、某个爆款商品）。按 key 分区后，<b>全落到同一个 Reduce，一台机器干所有活</b>。</p>
+      </div>
+
+      <h3>两阶段聚合：Hive 自带的解法</h3>
+
+      <pre class="code"><span class="kw">SET</span> hive.groupby.skewindata = <span class="kw">true</span>;</pre>
+
+      <p>开启后 Hive 会把一个作业拆成两个：</p>
+
+      <table>
+        <thead><tr><th>阶段</th><th>做什么</th></tr></thead>
+        <tbody>
+          <tr><td><b>第一个作业</b></td><td>给 key <b>加随机前缀</b>（<code class="inline">hadop</code> → <code class="inline">0_hadop</code>、<code class="inline">1_hadop</code>…），这样同一个 key 被打散到多个 Reduce 做<b>局部聚合</b></td></tr>
+          <tr><td><b>第二个作业</b></td><td><b>去掉前缀</b>，按原始 key 再做一次聚合，得到最终结果</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>这就是"加盐打散"的标准实现。</b>代价是多一个作业、多一轮 shuffle，<b>所以只在真倾斜时才开</b>——不倾斜时开了纯属浪费。</div>
+
+      <h3>但首选不是它</h3>
+
+      <table>
+        <thead><tr><th>顺序</th><th>手法</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td><b>1</b></td><td><b>先查是不是 NULL 造成的</b></td><td>很多"倾斜"其实是几百万行 NULL 全落一个 Reduce，<b>加个 <code class="inline">WHERE col IS NOT NULL</code> 就好了</b>，比任何参数都简单</td></tr>
+          <tr><td>2</td><td>Map Join</td><td>能绕开 reduce 就绕开</td></tr>
+          <tr><td>3</td><td><code class="inline">skewindata</code> 两阶段聚合</td><td>真倾斜时的通用解</td></tr>
+          <tr><td>4</td><td>热点单独处理</td><td>热点极少但极大时，拎出来单独跑再 union</td></tr>
+        </tbody>
+      </table>
+
+      <p class="muted small">（17 · 全篇）</p>
+
+      <!-- ============ 9.9 ============ -->
+      <h2>9.9 剩下的优化清单</h2>
+
+      <h3>EXPLAIN：排障第一步</h3>
+
+<pre class="code"><span class="kw">EXPLAIN</span> <span class="kw">SELECT</span> count(*) <span class="kw">FROM</span> log_orc;
+<span class="kw">EXPLAIN EXTENDED</span> ...        <span class="cm">-- 更详细（含语法树）</span>
+<span class="kw">EXPLAIN DEPENDENCY</span> ...      <span class="cm">-- 只看读了哪些分区/文件</span></pre>
+
+      <p><b>看什么，四个点</b>：</p>
+
+      <table>
+        <thead><tr><th>看</th><th>判断</th></tr></thead>
+        <tbody>
+          <tr><td><b>有几个 Stage</b></td><td>作业被拆成几个 MR。<b>Stage 越多，中间落盘越多</b></td></tr>
+          <tr><td><b>有没有 Reduce</b></td><td>只有 Map 阶段的作业快得多（<code class="inline">limit</code> 类查询应该只有 Map）</td></tr>
+          <tr><td><b>是 Map Join 还是 Reduce Join</b></td><td>看到 <code class="inline">Map Join Operator</code> 才是好结果</td></tr>
+          <tr><td><b>扫描了多少分区/文件</b></td><td>用 <code class="inline">EXPLAIN DEPENDENCY</code> 看，<b>扫描量远超预期说明分区裁剪没生效</b></td></tr>
+        </tbody>
+      </table>
+
+      <h3>运行时开关</h3>
+
+      <table>
+        <thead><tr><th>参数</th><th>作用</th><th>注意</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">hive.exec.mode.local.auto</code></td><td><b>本地模式</b>：小数据量时在本地跑，不起集群作业</td><td>要满足三个条件（输入小、文件数少、<code class="inline">reduces</code> 为 1）</td></tr>
+          <tr><td><code class="inline">hive.exec.parallel</code></td><td><b>并行执行</b>：无依赖的 Stage 一起跑</td><td>要配 <code class="inline">hive.exec.parallel.thread.number</code>；<b>集群忙时开了会抢资源</b></td></tr>
+          <tr><td><code class="inline">mapreduce.job.jvm.numtasks</code></td><td><b>JVM 重用</b>：一个 JVM 跑多个 task</td><td><b>代价是 task 之间不隔离，一个 OOM 影响其他</b>；现代版本价值已下降</td></tr>
+          <tr><td><code class="inline">hive.fetch.task.conversion</code></td><td><b>fetch 抓取</b>：简单查询不走 MR</td><td><code class="inline">more</code>（默认）比 <code class="inline">minimal</code> 覆盖更多查询</td></tr>
+          <tr><td><code class="inline">hive.stats.autogather</code></td><td>自动收集统计信息</td><td>CBO 依赖它，<b>关掉会导致优化器选错计划</b></td></tr>
+        </tbody>
+      </table>
+
+      <h3>CBO 与那个"反直觉"的例子</h3>
+
+      <p><b>CBO</b>（Cost Based Optimizer）= 基于<b>代价</b>选执行计划。它和老的 RBO（规则优化）的区别在于——<b>RBO 只看规则，不看数据分布；CBO 看统计信息</b>。</p>
+
+      <div class="callout ok"><b>课程给了一个很好的反例：1000 条数据里 900 条都命中条件时，走索引反而比全表扫慢。</b>
+        <p>因为走索引要先读索引、再回表取数据，<b>900 次随机 IO</b> 远比一次顺序全表扫慢。RBO 只会机械地认为"有索引就用索引"，而 CBO 会估算"命中率 90% → 全表扫更便宜"。</p>
+        <p><b>这也解释了 CBO 的命门：它依赖统计信息的准确性。</b>统计信息过期（数据量大变但没重新 <code class="inline">ANALYZE</code>），CBO 就会选错计划——<b>表现是"同一个 SQL 昨天快今天慢"</b>。这时该做的是 <code class="inline">ANALYZE TABLE t COMPUTE STATISTICS</code>，而不是改 SQL。</p>
+      </div>
+
+      <h3>预测执行与 fetch</h3>
+
+      <table>
+        <thead><tr><th>机制</th><th>做法</th><th>代价 / 判断</th></tr></thead>
+        <tbody>
+          <tr><td><b>推测执行</b><br>Speculative Execution</td><td>某个 task 跑得特别慢时，<b>另起一个同样的 task</b>，谁先完成用谁的结果</td><td><b>浪费资源</b>（两个 task 同时跑）。集群资源紧张时应该关掉；<b>数据倾斜导致的慢不要靠它</b>——重跑一次还是慢</td></tr>
+          <tr><td><b>fetch task</b></td><td>简单查询（无聚合、无 join、无排序）<b>不起 MR</b>，直接从 HDFS 读</td><td>这就是"为什么有的查询秒回"。<code class="inline">select * from t limit 10</code> 属于这类</td></tr>
+        </tbody>
+      </table>
+
+      <h3>优化的优先级：这一章的收尾</h3>
+
+      <div class="callout ok">
+        <p><b>第一层：少读数据（改一次，长期收益）</b><br>
+        分区裁剪（WHERE 带分区字段）→ 列裁剪（别写 <code class="inline">SELECT *</code>）→ 谓词下推（过滤条件写在子查询里）→ <b>换 ORC 格式（省 85% 存储，不用改 SQL）</b></p>
+
+        <p><b>第二层：少 shuffle（改 SQL 写法）</b><br>
+        小表 join 大表走 Map Join（小表写在前面）→ 用 <code class="inline">GROUP BY</code> 代替 <code class="inline">COUNT(DISTINCT)</code> → 避免 <code class="inline">ORDER BY</code> 全局排序 → 大表 join 大表考虑分桶</p>
+
+        <p><b>第三层：治小文件（改写入策略）</b><br>
+        开合并参数 → 调 reduce 数 → 用 <code class="inline">DISTRIBUTE BY</code> 控制文件数 → <code class="inline">CONCATENATE</code></p>
+
+        <p><b>第四层：调参数（最后才做）</b><br>
+        并行执行、JVM 重用、推测执行、<code class="inline">skewindata</code>——<b>这些是"锦上添花"，前三层没做好时调它们基本没用</b></p>
+      </div>
+
+      <div class="callout warn"><b>课程里有一句话值得单独记住："先看执行计划，再动手优化。"</b>
+        <p>不 <code class="inline">EXPLAIN</code> 就调参数，等于不看仪表盘修车。<b>而且优化过的 SQL 要再跑一次 EXPLAIN 对比</b>——否则你不知道自己改的那一项到底有没有生效。</p>
+      </div>
+
+      <p class="muted small">（12、13、14、18、19、20 六集；优先级排序为整理）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c09-1" data-persist><span>能说出六个子句里哪三个会产生 shuffle（GROUP BY / JOIN / ORDER BY）；"优化的本质是少读数据、少 shuffle"这句话讲得出（9.1）</span></label>
+        <label><input type="checkbox" id="c09-2" data-persist><span>行式与列式的差别能举一个具体查询说明（只查一列时列式只读那一列）；知道 <b>ORC / PARQUET 不能 LOAD DATA</b>，必须先灌 TEXTFILE 再 INSERT SELECT（9.2）</span></label>
+        <label><input type="checkbox" id="c09-3" data-persist><span>三个实测数字记得住（TEXTFILE 18.13 / PARQUET 13.09 / <b>ORC 2.78 MB，省 85%</b>）；并且知道<b>为什么 count(*) 看不出列式优势</b>（9.3）</span></label>
+        <label><input type="checkbox" id="c09-4" data-persist><span><code class="inline">STORED AS ORC</code> 与 <code class="inline">orc.compress</code> 是两件事（不指定算法≠不压缩，默认 ZLIB）；ZLIB 与 SNAPPY 的取舍说得出（9.3）</span></label>
+        <label><input type="checkbox" id="c09-5" data-persist><span><b>压缩与切片的矛盾讲得透</b>：不可切，一个 10 GB 的 gzip 只能由一个 Map 处理；所以 Snappy 不是压缩率最高却是生产首选（9.4）</span></label>
+        <label><input type="checkbox" id="c09-6" data-persist><span>行组索引管范围、布隆索引管等值；<b>布隆"可能误判存在、绝不误判不存在"</b>所以能安全用于优化；知道布隆要显式建（9.5）</span></label>
+        <label><input type="checkbox" id="c09-7" data-persist><span>小文件的两笔账（NN 内存 + 一文件一 Map）；四种解法及各自限制，尤其 <code class="inline">CONCATENATE</code> 只对 ORC 有效、<code class="inline">merge.mapfiles</code> 只管纯 Map 作业（9.6）</span></label>
+        <label><input type="checkbox" id="c09-8" data-persist><span>Map Join 与 Reduce Join 的差别（有无 shuffle、25MB 阈值、小表在前）；能讲出 Reduce Join 那个 tag 机制；知道大表 join 大表靠 bucket / SMB join（9.7）</span></label>
+        <label><input type="checkbox" id="c09-9" data-persist><span>Group By 三阶段与 <code class="inline">skewindata</code> 两阶段聚合讲得清；<b>倾斜排查第一步是查 NULL 而不是先加盐</b>；最后能按"少读 → 少 shuffle → 治小文件 → 调参数"排出优化优先级（9.8 / 9.9）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 09 章 · 由 20 个视频（3.1 小时）提炼 · 2026-11 · 全课程完</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ===== SECURITY-HARDENING 安全加固（勿删）：限制资源来源与外发，防点击劫持 ===== -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<script>
+/* 防点击劫持：GitHub Pages 无法下发 X-Frame-Options，被第三方页面嵌套时自动跳出 */
+(function () {
+  if (window.top !== window.self) {
+    try { window.top.location.href = window.self.location.href; }
+    catch (e) { document.documentElement.innerHTML = ''; }
+  }
+})();
+</script>
+<!-- ===== SECURITY-HARDENING END ===== -->
+<title>03 · Hive 数仓构建 — 大数据技术栈</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-page="c03">
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="index.html" class="logo">🐘 大数据<b>技术栈</b></a>
+    <nav class="nav">
+      <a href="index.html" data-nav="home">首页</a>
+      <a href="ch02.html" data-nav="c02">← 上一章</a>
+      <a href="ch03.html" data-nav="c03" class="active">第 03 章</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container app" style="padding-top:20px;padding-bottom:48px">
+  <div class="crumb"><a href="index.html">首页</a> / 第二阶段 · Hive / <b>03 · Hive 数仓构建</b></div>
+  <div class="layout">
+
+    <aside class="chapnav">
+      <div class="cap">课程目录</div>
+      <div class="grp">🐘 Hadoop 阶段</div>
+      <a href="ch01.html" data-nav="c01"><span class="no">01</span>基础与集群架构 <span class="pg" data-chapter-progress="c01">0/8</span></a>
+      <a href="ch02.html" data-nav="c02"><span class="no">02</span>HDFS 分布式存储 <span class="pg" data-chapter-progress="c02">0/9</span></a>
+      <div class="grp">🐝 Hive 阶段</div>
+      <a href="ch03.html" data-nav="c03" class="active"><span class="no">03</span>Hive 数仓构建 <span class="pg" data-chapter-progress="c03">0/8</span></a>
+      <a href="ch04.html" data-nav="c04"><span class="no">04</span>Hive 基础知识 <span class="pg" data-chapter-progress="c04">0/10</span></a>
+      <a href="ch05.html" data-nav="c05"><span class="no">05</span>Hive 查询操作 <span class="pg" data-chapter-progress="c05">0/9</span></a>
+      <a href="ch06.html" data-nav="c06"><span class="no">06</span>Hive 高级查询 <span class="pg" data-chapter-progress="c06">0/8</span></a>
+      <div class="grp">⚙️ 计算引擎</div>
+      <a href="ch07.html" data-nav="c07"><span class="no">07</span>MapReduce 与 YARN <span class="pg" data-chapter-progress="c07">0/8</span></a>
+      <div class="grp">🛡️ 高可用</div>
+      <a href="ch08.html" data-nav="c08"><span class="no">08</span>ZooKeeper 与高可用 <span class="pg" data-chapter-progress="c08">0/8</span></a>
+      <div class="grp">🚀 优化</div>
+      <a href="ch09.html" data-nav="c09"><span class="no">09</span>Hive 存储压缩与优化 <span class="pg" data-chapter-progress="c09">0/9</span></a>
+    </aside>
+
+    <div class="appmain doc">
+
+      <section class="hero compact">
+        <span class="tag">第 10 天 · 13 个有效视频 · 2.0 小时</span>
+        <h1>03 · Hive 数仓构建</h1>
+        <p class="sub">前两章你造的是"存储 + 算力"，但没人会直接用 HDFS 做报表——因为写 MapReduce 太慢。这一章先讲清<b>数据仓库这个领域在干什么</b>（分层、ETL、OLTP 与 OLAP 的分野），再把 Hive 装上、启动、连上去。<b>先懂业务为什么这么分层，后面的建表、分区、优化才有落点</b>；否则你只是背了一堆语法。</p>
+
+        <div class="basis-note">
+          <span class="bt">内容基准</span>
+          <span class="bl">主体素材：Hadoop 实战课第 10 天（13 个有效视频，另有 1 个"回顾"和 1 个"串讲"已跳过）　·　2026-11 提炼</span>
+          <span class="bl">需留意：<b>3.5 / 3.6</b> 的版本号与路径以课程环境（Hive 3.1.2 + Hadoop 3.3.0 + MySQL）为准，<b>guava 版本冲突</b>是这组版本特有的坑；<b>3.1~3.4</b> 是行业通用方法论，不受版本影响。文中标「补充」的部分课程未展开。</span>
+        </div>
+      </section>
+
+      <!-- ============ 3.1 ============ -->
+      <h2>3.1 数据仓库是什么：一句话定住它</h2>
+
+      <p>先给一句能定住全局的话，它后面所有的性质都是这句的推论：</p>
+
+      <div class="callout ok"><b>数据仓库既不<u>生产</u>数据，也不<u>消费</u>数据。</b>
+        <p>它不产生业务数据（那是 MySQL 这些业务库的事），也不直接给终端用户看（那是报表、App、接口的事）。它站在中间：<b>把散在各处的数据收进来、洗干净、按主题重组、算成指标，再交给下游</b>。</p>
+      </div>
+
+      <p>由这一句能推出四个特征（数仓的教科书定义，面试常问）：</p>
+
+      <table>
+        <thead><tr><th>特征</th><th>含义</th><th>从哪推出来的</th></tr></thead>
+        <tbody>
+          <tr><td><b>面向主题</b></td><td>按"用户""订单""商品"这类分析主题组织，不按业务系统的模块组织</td><td>因为要回答分析问题，不是完成一笔交易</td></tr>
+          <tr><td><b>集成</b></td><td>多个源系统的数据要统一口径、统一编码、统一单位后才能放在一起</td><td>因为数据来自多处，不集成就没法比</td></tr>
+          <tr><td><b>非易失</b></td><td>数据一旦进来基本不改，只追加不修改（改也是整分区重刷）</td><td>因为要留历史快照做趋势分析</td></tr>
+          <tr><td><b>随时间变化</b></td><td>每条数据都带时间维度，记录"某时刻的状态"</td><td>因为分析的本质就是看变化</td></tr>
+        </tbody>
+      </table>
+
+      <p>课程用一个真实场景说明了"为什么必须建数仓"：一家公司有几十个业务系统（寿险、财险、银行、投资），每个系统一套数据库，字段口径还都不一样。<b>老板问"上个月集团总共多少新增客户"，没人能在一小时内答出来</b>——因为要去十几个库捞数据、还要人工对齐口径。这就是数仓存在的理由：<b>把"回答一个问题要几天"变成"几分钟"</b>。</p>
+
+      <p class="muted small">（02 · 全篇）</p>
+
+      <!-- ============ 3.2 ============ -->
+      <h2>3.2 OLTP 与 OLAP：一条分界线</h2>
+
+      <p>"Hive 和 MySQL 有什么区别"是面试高频题。标准答法不是比功能，而是<b>先说它们属于两个不同的世界</b>：</p>
+
+      <div class="callout info"><b>OLTP</b>（On-Line <b>Transaction</b> Processing）= 联机<b>事务</b>处理，落到操作就是增删改查。<br>
+      <b>OLAP</b>（On-Line <b>Analytical</b> Processing）= 联机<b>分析</b>处理，落到操作就是大规模聚合查询。</div>
+
+      <table>
+        <thead><tr><th>维度</th><th>OLTP（MySQL / Oracle）</th><th>OLAP（Hive / Spark SQL / ClickHouse）</th></tr></thead>
+        <tbody>
+          <tr><td>面向</td><td>面向<b>应用</b>，支撑一笔笔业务</td><td>面向<b>主题</b>，支撑经营决策</td></tr>
+          <tr><td>数据</td><td>当前值（订单此刻的状态）</td><td><b>历史快照</b>（过去每一天的状态）</td></tr>
+          <tr><td>来源</td><td>自身业务产生，是<b>源头</b></td><td>不生产，来自多个外部源</td></tr>
+          <tr><td>操作</td><td><b>增删改查</b>都频繁</td><td><b>大量读、极少写</b>，只有导入与分析</td></tr>
+          <tr><td>量级</td><td>MB ~ GB</td><td>GB ~ PB</td></tr>
+          <tr><td>响应</td><td><b>毫秒级</b>，回车即出</td><td>秒到分钟，慢的按小时算</td></tr>
+          <tr><td>典型产品</td><td>MySQL、Oracle、PostgreSQL</td><td>Hive、Spark SQL、ClickHouse、Doris</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>一句话记法：OLTP 关心"这一笔业务对不对"，OLAP 关心"这一段时间的趋势是什么"。</b>
+        <p>所以 MySQL 上跑一个千万行的 group by 会卡死，而 Hive 上跑同样的查询是日常——不是 Hive 更"强"，是它<b>放弃了毫秒响应和事务，换来吞吐</b>。</p>
+      </div>
+
+      <p>顺带说清 Hive 的定位：<b>它是把 SQL 翻译成 MapReduce（或 Tez/Spark）作业的工具</b>，自己不存数据（数据在 HDFS）、自己不算数据（算力在 YARN）、只存"表长什么样"（元数据在 MySQL）。所以 Hive 天然属于 OLAP 那一侧。</p>
+
+      <p class="muted small">（03 · 全篇；Hive 定位部分为补充）</p>
+
+      <!-- ============ 3.3 ============ -->
+      <h2>3.3 分层架构：ODS / DWD / DWS / DWT / ADS</h2>
+
+      <p>数仓最容易被讲成一堆名词的地方就在这。但只要抓住"<b>每一层解决一个问题</b>"，五层一下就顺了。</p>
+
+      <table>
+        <thead><tr><th>层</th><th>全称</th><th>一句话职责</th><th>数据形态</th></tr></thead>
+        <tbody>
+          <tr><td><b>ODS</b></td><td>Operational Data Store<br>贴源层</td><td><b>原样落地</b>：业务库什么样就什么样，不洗不改</td><td>与源表结构一致，按 <code class="inline">dt</code> 分区存每日全量/增量</td></tr>
+          <tr><td><b>DWD</b></td><td>Data Warehouse Detail<br>明细层</td><td><b>清洗 + 规范化</b>：去重、剔脏、统一单位、维度退化</td><td>一行一条业务事实（一个订单、一次登录）</td></tr>
+          <tr><td><b>DWS</b></td><td>Data Warehouse Summary<br>汇总层</td><td><b>按维度聚合</b>：把明细按"用户 / 商品 / 天"滚起来</td><td>一行一个"维度组合 + 指标"，轻聚合</td></tr>
+          <tr><td><b>DWT</b></td><td>Data Warehouse Topic<br>主题层</td><td><b>拼宽表</b>：把同一主题的多个汇总拼到一行</td><td>用户主题宽表、商品主题宽表</td></tr>
+          <tr><td><b>ADS</b></td><td>Application Data Service<br>应用层</td><td><b>出指标</b>：直接对接报表、接口、大屏</td><td>一张表就是一个业务指标集</td></tr>
+        </tbody>
+      </table>
+
+      <p>光看职责还是抽象，走一遍真实需求最清楚。<b>需求：统计每日活跃用户的订单金额。</b></p>
+
+      <table>
+        <thead><tr><th>层</th><th>表（示例）</th><th>做了什么</th></tr></thead>
+        <tbody>
+          <tr><td>ODS</td><td><code class="inline">ods_order_info</code>、<code class="inline">ods_user_login_log</code></td><td>从业务库原样同步，按 <code class="inline">dt</code> 分区，一个字段都不改</td></tr>
+          <tr><td>DWD</td><td><code class="inline">dwd_trade_order_detail</code>、<code class="inline">dwd_user_login_detail</code></td><td>订单去重、剔除取消单和测试单、金额统一到元；登录日志剔除爬虫与异常 IP</td></tr>
+          <tr><td>DWS</td><td><code class="inline">dws_trade_user_order_1d</code></td><td>按 <code class="inline">user_id + dt</code> 汇总当日下单金额与笔数；标记当日是否活跃</td></tr>
+          <tr><td>DWT</td><td><code class="inline">dwt_user_topic_1d</code></td><td>把"当日是否活跃"和"当日消费金额"拼到同一行——用户主题宽表</td></tr>
+          <tr><td>ADS</td><td><code class="inline">ads_dau_order_amount_1d</code></td><td>输出三个数：日活用户数、活跃用户订单总额、活跃用户客单价</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>注意这条链路的"收敛性"：ODS 有几十上百张表，到 DWS 只剩几张，到 ADS 只剩一张。</b>
+        <p>越往下游，表越少、算得越轻、查得越快。这就是分层的形状——<b>一个漏斗，不是一个仓库</b>。</p>
+      </div>
+
+      <p>还有一个常被问的：<b>数据集市（Data Mart）是什么？</b>它是数仓的一个子集，面向某个部门（比如只服务销售部）。区别是数仓面向全公司、集市面向单部门。小公司经常直接跳过数据集市，因为数仓还不够大。</p>
+
+      <p class="muted small">（04 · 全篇；数据集市部分来自 04 开头）</p>
+
+      <!-- ============ 3.4 ============ -->
+      <h2>3.4 为什么分层，以及 ETL 与 ELT 的分水岭</h2>
+
+      <h3>分层的五条理由，其实是三条</h3>
+
+      <p>课程给了五条：结构清晰、血缘追踪、减少重复开发、复杂问题简单化、屏蔽原始数据异常。听着都对，但真正能撑住"必须分层"这个结论的只有三条：</p>
+
+      <table>
+        <thead><tr><th>理由</th><th>具体含义</th><th>不分层会怎样</th></tr></thead>
+        <tbody>
+          <tr><td><b>减少重复计算</b></td><td>DWS 的日汇总被十个报表复用，只算一次</td><td>十个报表各写一遍 SQL，各扫一遍全量，集群被拖死</td></tr>
+          <tr><td><b>隔离变化</b></td><td>口径变了只改 DWD 一处，下游不动</td><td>源表字段改名，几十个下游任务全挂</td></tr>
+          <tr><td><b>血缘可追</b></td><td>指标异常时沿上一层逐级回溯，几小时定位到源头</td><td>一个数对不上，从报表一路查到业务库，几天查不出</td></tr>
+        </tbody>
+      </table>
+
+      <p>其余两条（结构清晰、复杂问题简单化）是前三条的副产品。<b>记住"减少重复计算 + 隔离变化"，这两条是分层的经济动机</b>——分层不是为了好看，是为了省算力和省人力。</p>
+
+      <h3>ETL 与 ELT：差别只在 T 和 L 谁先</h3>
+
+      <p>三个字母：Extract 抽取、Transform 转换、Load 加载。差别全在顺序。</p>
+
+<pre class="code"><span class="cm"># ETL：先转换，再加载</span>
+数据源  →  [ETL 工具内清洗转换]  →  数仓  →  分析
+
+<span class="cm"># ELT：先加载，再转换</span>
+数据源  →  数仓（原始数据先落地）  →  [数仓内用 SQL 转换]  →  分析</pre>
+
+      <table>
+        <thead><tr><th></th><th>ETL</th><th>ELT</th></tr></thead>
+        <tbody>
+          <tr><td>转换在哪</td><td>数仓<b>外面</b>（专用工具里）</td><td>数仓<b>里面</b>（SQL 里）</td></tr>
+          <tr><td>对工具要求</td><td><b>高</b>（Sqoop / Flume / DataX / Kettle）</td><td><b>低</b>，但对 SQL / Python 能力要求高</td></tr>
+          <tr><td>原始数据</td><td>不进仓，只有干净数据进</td><td><b>原样留一份</b>，可回溯可重跑</td></tr>
+          <tr><td>时代</td><td>传统行业数仓的主流</td><td>大数据时代的默认做法</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok"><b>为什么大数据时代 ELT 流行了——这条因果链值得记住：</b>
+        <p><b>①</b> ETL 时代存储贵、算力贵，只能在仓外借专用工具"边抽边算"，尽量少落盘；<br>
+        <b>②</b> HDFS + 廉价磁盘让<b>存储成本大幅下降</b>，"先把原始数据全量存下来"不再奢侈；<br>
+        <b>③</b> Hive / Spark 让<b>算力可横向扩展</b>，对海量数据直接跑 SQL 完全可行；<br>
+        <b>④</b> 于是转换从"加载前"挪到"加载后"——<b>先存下来再算</b>，原始数据还留了一份，可回溯、可重跑、可换口径重算；<br>
+        <b>⑤</b> 结果就是 ELT 成为主流，且天然对应 ODS"原样落地"的定位。</p>
+      </div>
+
+      <p>反过来记一句话：<b>ELT 不是"不做转换"，只是把转换推迟到了仓内。</b>很多人以为 ELT 就是"不洗数据"，这是误解——不洗数据的后果是脏数据污染全链路。</p>
+
+      <p class="muted small">（05、06 全篇；补充了"三条真正的理由"这一取舍）</p>
+
+      <!-- ============ 3.5 ============ -->
+      <h2>3.5 三种部署方式：差在两个地方</h2>
+
+      <p>课程花了 20 分钟讲这个，因为很多人一开始就理解错了。判断标准只有两条：<b>元数据库在哪、Metastore 服务是否独立</b>——不是"装在哪台机器"。</p>
+
+      <p>先把两个概念钉死：</p>
+      <ul>
+        <li><b>元数据库（Metastore DB）</b>：存"有哪些库、哪些表、表有哪些字段、数据在 HDFS 哪个路径"。默认是 Derby，生产换 MySQL。</li>
+        <li><b>Metastore 服务</b>：一个 Thrift 服务（默认 9083 端口），客户端通过它读写元数据。<b>它可以跟 Hive 同进程，也可以独立成服务。</b></li>
+      </ul>
+
+      <table>
+        <thead><tr><th>模式</th><th>元数据库</th><th>Metastore 服务</th><th>能否多客户端</th><th>用在哪</th></tr></thead>
+        <tbody>
+          <tr><td><b>内嵌</b><br>embedded</td><td>Derby（Hive 自带）</td><td>跟 Hive 同进程</td><td><b>不能</b>，同一时刻只允许一个会话</td><td>自己试玩、跑个 hello world</td></tr>
+          <tr><td><b>本地</b><br>local</td><td>MySQL（独立）</td><td>跟 Hive <b>同进程</b></td><td>受限于同进程，一般也不并发</td><td>单机开发、学习过渡</td></tr>
+          <tr><td><b>远程</b><br>remote</td><td>MySQL（独立）</td><td><b>独立服务</b>（9083）</td><td><b>能</b>，多客户端共享一份元数据</td><td><b>生产与课程环境都用这个</b></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>内嵌模式的坑：Derby 是单会话独占的。</b>你开了一个 <code class="inline">hive</code> 窗口，另开一个就连不上，报 <code class="inline">Another instance of Derby may have already booted</code>。<b>这是新手第一次装 Hive 最常见的困惑</b>——不是装错了，是内嵌模式天生如此。</div>
+
+      <p>课程直接选了<b>远程模式</b>，理由很实在：只有它支持多客户端，而真实开发就是这样——你用 DataGrip 连、同事用 beeline 连、调度系统用 JDBC 连，读的都是同一份元数据。</p>
+
+      <p class="muted small">（07 · 全篇）</p>
+
+      <!-- ============ 3.6 ============ -->
+      <h2>3.6 远程模式安装：七步走到能启动</h2>
+
+      <p>这一段是全章最容易翻车的地方。<b>按顺序做，每步都有验收标准。</b></p>
+
+      <h3>① 前置：Hadoop 侧要开用户代理</h3>
+
+      <p>Hive 启动时会以"提交人"的身份去操作 HDFS，必须允许代理。在 <code class="inline">core-site.xml</code> 加三项并重启 Hadoop：</p>
+
+<pre class="code">&lt;property&gt;
+    &lt;name&gt;hadoop.proxyuser.root.hosts&lt;/name&gt;
+    &lt;value&gt;*&lt;/value&gt;
+&lt;/property&gt;
+&lt;property&gt;
+    &lt;name&gt;hadoop.proxyuser.root.groups&lt;/name&gt;
+    &lt;value&gt;*&lt;/value&gt;
+&lt;/property&gt;</pre>
+
+      <p>不加会在建表时报 <code class="inline">Permission denied: user=hive, access=WRITE</code>——<b>明明你是 root，它却说 hive 没权限</b>，这个报错很迷惑。</p>
+
+      <h3>② 解压，然后立刻解决 guava 冲突</h3>
+
+<pre class="code"><span class="kw">cd</span> /export/server
+tar -zxvf apache-hive-3.1.2-bin.tar.gz</pre>
+
+      <div class="callout warn"><b>这一步必须做，否则启动就是 <code class="inline">NoSuchMethodError</code>，而且报错完全看不出跟 guava 有关。</b>
+        <p>原因：Hive 3.1.2 自带 <code class="inline">guava-19.0.jar</code>，而 Hadoop 3.3.0 用的是 <code class="inline">guava-27.0-jre.jar</code>。同一个类两个版本共存，Hive 加载到旧的那个就缺方法。</p>
+        <p>原则：<b>以 Hadoop 侧版本为准</b>，把 Hadoop 的 guava 拷进 Hive 的 lib，不是反过来。</p>
+      </div>
+
+<pre class="code"><span class="kw">cd</span> /export/server/apache-hive-3.1.2-bin/lib
+<span class="kw">rm</span> -rf guava-19.0.jar
+<span class="kw">cp</span> /export/server/hadoop-3.3.0/share/hadoop/common/lib/guava-27.0-jre.jar ./
+ls -l guava*</pre>
+
+      <h3>③ 配 hive-env.sh（模板要改名才生效）</h3>
+
+<pre class="code"><span class="kw">cd</span> /export/server/apache-hive-3.1.2-bin/conf
+<span class="kw">mv</span> hive-env.sh.template hive-env.sh
+vim hive-env.sh        <span class="cm"># 末尾追加三行</span></pre>
+
+<pre class="code"><span class="kw">export</span> HADOOP_HOME=/export/server/hadoop-3.3.0
+<span class="kw">export</span> HIVE_CONF_DIR=/export/server/apache-hive-3.1.2-bin/conf
+<span class="kw">export</span> HIVE_AUX_JARS_PATH=/export/server/apache-hive-3.1.2-bin/lib</pre>
+
+      <table>
+        <thead><tr><th>变量</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">HADOOP_HOME</code></td><td>让 Hive 找到 Hadoop，加 classpath、调 HDFS/YARN 客户端</td></tr>
+          <tr><td><code class="inline">HIVE_CONF_DIR</code></td><td>指定 hive-site.xml 等配置所在目录</td></tr>
+          <tr><td><code class="inline">HIVE_AUX_JARS_PATH</code></td><td>附加 jar 目录，第三方 UDF、驱动从这加载</td></tr>
+        </tbody>
+      </table>
+
+      <h3>④ 新建 hive-site.xml（包里没有这个文件）</h3>
+
+      <p>注意是<b>新建</b>，不是改——包里的 conf 目录只有模板和默认文件。</p>
+
+<pre class="code">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;?xml-stylesheet type="text/xsl" href="configuration.xsl"?&gt;
+&lt;configuration&gt;
+
+  <span class="cm">&lt;!-- ① 元数据库连接串 --&gt;</span>
+  &lt;property&gt;
+    &lt;name&gt;javax.jdo.option.ConnectionURL&lt;/name&gt;
+    &lt;value&gt;jdbc:mysql://node1:3306/hive3?createDatabaseIfNotExist=true&amp;amp;useSSL=false&amp;amp;characterEncoding=UTF-8&lt;/value&gt;
+  &lt;/property&gt;
+
+  <span class="cm">&lt;!-- ② 驱动类全名，必须和 lib/ 下 jar 版本对应 --&gt;</span>
+  &lt;property&gt;
+    &lt;name&gt;javax.jdo.option.ConnectionDriverName&lt;/name&gt;
+    &lt;value&gt;com.mysql.jdbc.Driver&lt;/value&gt;
+  &lt;/property&gt;
+
+  &lt;property&gt;
+    &lt;name&gt;javax.jdo.option.ConnectionUserName&lt;/name&gt;
+    &lt;value&gt;root&lt;/value&gt;
+  &lt;/property&gt;
+  &lt;property&gt;
+    &lt;name&gt;javax.jdo.option.ConnectionPassword&lt;/name&gt;
+    &lt;value&gt;你的密码&lt;/value&gt;
+  &lt;/property&gt;
+
+  <span class="cm">&lt;!-- ⑤ 数仓在 HDFS 上的根目录 --&gt;</span>
+  &lt;property&gt;
+    &lt;name&gt;hive.metastore.warehouse.dir&lt;/name&gt;
+    &lt;value&gt;/user/hive/warehouse&lt;/value&gt;
+  &lt;/property&gt;
+
+  <span class="cm">&lt;!-- ⑥ 远程模式核心：客户端去哪找 Metastore --&gt;</span>
+  &lt;property&gt;
+    &lt;name&gt;hive.metastore.uris&lt;/name&gt;
+    &lt;value&gt;thrift://node1:9083&lt;/value&gt;
+  &lt;/property&gt;
+
+  <span class="cm">&lt;!-- ⑦⑧ HS2 绑定地址与端口 --&gt;</span>
+  &lt;property&gt;
+    &lt;name&gt;hive.server2.thrift.bind.host&lt;/name&gt;
+    &lt;value&gt;node1&lt;/value&gt;
+  &lt;/property&gt;
+  &lt;property&gt;
+    &lt;name&gt;hive.server2.thrift.port&lt;/name&gt;
+    &lt;value&gt;10000&lt;/value&gt;
+  &lt;/property&gt;
+
+&lt;/configuration&gt;</pre>
+
+      <p>四个 <code class="inline">javax.jdo.option.*</code> 是元数据库"四件套"，<b>缺一个 Metastore 就起不来</b>：</p>
+
+      <table>
+        <thead><tr><th>属性</th><th>常见错误</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">ConnectionURL</code></td><td>库名写错 → 表建到别的库；<b><code class="inline">&amp;</code> 在 XML 里必须写成 <code class="inline">&amp;amp;</code></b>，否则 XML 解析直接失败</td></tr>
+          <tr><td><code class="inline">ConnectionDriverName</code></td><td>5.x 驱动是 <code class="inline">com.mysql.jdbc.Driver</code>，<b>8.x 是 <code class="inline">com.mysql.cj.jdbc.Driver</code></b>，写错报 <code class="inline">No suitable driver</code></td></tr>
+          <tr><td><code class="inline">ConnectionUserName</code></td><td>用了只能本机登录的账号，远程连被拒</td></tr>
+          <tr><td><code class="inline">ConnectionPassword</code></td><td>改密码后忘了同步这里</td></tr>
+        </tbody>
+      </table>
+
+      <h3>⑤ 放 MySQL 驱动 jar</h3>
+
+<pre class="code"><span class="kw">cp</span> mysql-connector-java-5.1.38.jar /export/server/apache-hive-3.1.2-bin/lib/</pre>
+
+      <p><b>驱动版本要和 ② 里的类名对齐</b>：5.1.x 配 <code class="inline">com.mysql.jdbc.Driver</code>，8.x 配 <code class="inline">com.mysql.cj.jdbc.Driver</code>。<b>混搭是这个环节最隐蔽的错</b>——jar 放了、类名也写了，就是不匹配。</p>
+
+      <h3>⑥ MySQL 侧：建库 + 允许远程 + 8.x 认证插件</h3>
+
+<pre class="code"><span class="cm">-- 建元数据库（字符集必须 utf8，否则中文注释乱码）</span>
+CREATE DATABASE hive3 DEFAULT CHARACTER SET utf8;
+
+<span class="cm">-- 允许 root 从任意主机连（学习环境；生产要限 IP）</span>
+<span class="kw">USE</span> mysql;
+<span class="kw">UPDATE</span> user <span class="kw">SET</span> host=<span class="st">'%'</span> <span class="kw">WHERE</span> user=<span class="st">'root'</span>;
+<span class="kw">FLUSH</span> PRIVILEGES;
+
+<span class="cm">-- MySQL 8.x 特有：驱动不认 caching_sha2_password</span>
+<span class="kw">ALTER</span> <span class="kw">USER</span> <span class="st">'root'</span>@<span class="st">'%'</span> IDENTIFIED <span class="kw">WITH</span> mysql_native_password <span class="kw">BY</span> <span class="st">'你的密码'</span>;</pre>
+
+      <div class="callout warn"><b>MySQL 8.x 的认证插件是新版最大的坑。</b>8.0 默认用 <code class="inline">caching_sha2_password</code>，而老版 JDBC 驱动只认 <code class="inline">mysql_native_password</code>，表现是<b>密码明明对，却报 <code class="inline">Access denied</code></b>。要么改认证插件（上面这条），要么换 8.x 驱动并改类名。</div>
+
+      <h3>⑦ 初始化元数据库</h3>
+
+<pre class="code">schematool -dbType mysql -initSchema</pre>
+
+      <p>这一步做的是<b>在 MySQL 的 hive3 库里建 50 多张元数据表</b>（DBS、TBLS、COLUMNS_V2……）。验收标准：末尾输出 <code class="inline">Initialization script completed</code> + <code class="inline">schemaTool completed</code>。</p>
+
+      <p>如果第一次执行失败，重试前要先 <code class="inline">DROP DATABASE hive3</code> 重建——因为中途失败会留下半套表，再 init 会撞"表已存在"。</p>
+
+      <h3>⑧ 建 HDFS 目录并授权</h3>
+
+<pre class="code">hdfs dfs -mkdir -p /user/hive/warehouse
+hdfs dfs -mkdir -p /tmp/hive
+hdfs dfs -chmod -R 777 /user/hive/warehouse
+hdfs dfs -chmod -R 777 /tmp/hive</pre>
+
+      <p><code class="inline">/tmp/hive</code> 是 Hive 的临时目录（存中间结果、会话文件），不放权限会报 <code class="inline">Failed to create directory</code>。</p>
+
+      <p class="muted small">（08 · 全篇；MySQL 8.x 认证插件与 HDFS 授权为补充）</p>
+
+      <!-- ============ 3.7 ============ -->
+      <h2>3.7 启动顺序与四个客户端</h2>
+
+      <h3>顺序不能乱</h3>
+
+<pre class="code">MySQL  →  Hadoop（HDFS + YARN）  →  Metastore（9083）  →  HiveServer2（10000）  →  客户端</pre>
+
+      <p>每一环都是下一环的前提：Hadoop 没起，Metastore 起来也读不到 HDFS；Metastore 没起，HS2 起来也读不到表结构。</p>
+
+      <div class="callout info"><b>第一次一定前台启动，别急着 nohup。</b>配置手抖改错是常态，前台能看到完整报错：</div>
+
+<pre class="code"><span class="kw">cd</span> /export/server/apache-hive-3.1.2-bin
+bin/hive --service metastore       <span class="cm"># 看到 Starting Hive Metastore Server 且长时间无报错 = 配置对</span>
+<span class="cm"># Ctrl+C 停掉，再后台起</span></pre>
+
+      <p>确认无误后后台起两条：</p>
+
+<pre class="code">nohup /export/server/apache-hive-3.1.2-bin/bin/hive --service metastore \
+  &gt; /export/server/apache-hive-3.1.2-bin/metastore.log 2&gt;&amp;1 &amp;
+
+nohup /export/server/apache-hive-3.1.2-bin/bin/hive --service hiveserver2 \
+  &gt; /export/server/apache-hive-3.1.2-bin/hiveserver2.log 2&gt;&amp;1 &amp;</pre>
+
+      <h3>三个验收信号</h3>
+
+<pre class="code"><span class="cm"># ① 进程：应该有两个 RunJar</span>
+jps
+
+<span class="cm"># ② 端口：10000 被监听才算 HS2 好了</span>
+netstat -nltp | grep 10000
+
+<span class="cm"># ③ 日志：出错看这里</span>
+tail -100 hiveserver2.log</pre>
+
+      <div class="callout warn"><b>HS2 首次启动要 3~5 分钟。</b>这段时间客户端连必失败，报 <code class="inline">Connection refused</code>。<b>"连不上"的绝大多数情况是端口还没 LISTEN，不是配置错了。</b>日志出现 <code class="inline">Starting HiveServer2</code> 才算起来，出现 <code class="inline">HiveServer2 started</code> 更稳。</div>
+
+      <h3>四个客户端，四条路径</h3>
+
+      <table>
+        <thead><tr><th>客户端</th><th>命令</th><th>连谁</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td>老客户端</td><td><code class="inline">bin/hive</code></td><td><b>直连 Metastore</b>，绕过 HS2</td><td>已不推荐，可本地调试</td></tr>
+          <tr><td>新客户端</td><td><code class="inline">bin/beeline</code></td><td>经 JDBC 连 <b>HiveServer2</b></td><td>官方主推，支持并发</td></tr>
+          <tr><td>图形化</td><td>DataGrip / DBeaver</td><td>JDBC 连 HS2</td><td>日常开发最顺手</td></tr>
+          <tr><td>程序</td><td>JDBC / Python</td><td>JDBC 连 HS2</td><td>调度系统用这个</td></tr>
+        </tbody>
+      </table>
+
+      <p><b>beeline 是两步：先进交互界面，再 connect。</b></p>
+
+<pre class="code">bin/beeline
+<span class="cm"># 提示符变 beeline&gt; 之后：</span>
+!connect jdbc:hive2://node1:10000
+<span class="cm"># username: root    password: 随便输（默认无密码认证）</span>
+
+show databases;
+!quit            <span class="cm"># 退出必须用 !quit，exit; 在这里不生效</span></pre>
+
+      <p><b>为什么"直接敲 beeline 连不上"</b>，就两个原因，按顺序查：</p>
+      <ol>
+        <li><b>HS2 没起。</b><code class="inline">jps</code> 只有一个 <code class="inline">RunJar</code>（那是 Metastore）时，beeline 一定连不上。要有两个。</li>
+        <li><b>HS2 起了但还没到能用的时候。</b><code class="inline">netstat -nltp | grep 10000</code> 没输出就是没好，等。</li>
+      </ol>
+
+      <p>把 beeline 加进 PATH 省得每次写全路径：</p>
+
+<pre class="code"><span class="kw">echo</span> <span class="st">'export PATH=$PATH:/export/server/apache-hive-3.1.2-bin/bin'</span> &gt;&gt; /etc/profile
+<span class="kw">source</span> /etc/profile
+which beeline</pre>
+
+      <h3>DataGrip 连接参数</h3>
+
+      <table>
+        <thead><tr><th>项</th><th>值</th></tr></thead>
+        <tbody>
+          <tr><td>Driver</td><td>Apache Hive（首次要下驱动，DataGrip 会自动拉）</td></tr>
+          <tr><td>Host / Port</td><td><code class="inline">node1</code> / <code class="inline">10000</code></td></tr>
+          <tr><td>URL</td><td><code class="inline">jdbc:hive2://node1:10000</code></td></tr>
+          <tr><td>User</td><td><code class="inline">root</code>（必须写，空着会报认证失败）</td></tr>
+        </tbody>
+      </table>
+
+      <p>连不上时按 ① HS2 是否起来 ② 10000 是否监听 ③ 防火墙 ④ user 是否填了 的顺序排查——<b>九成是第一条</b>。</p>
+
+      <p class="muted small">（10、12、13、14 四集）</p>
+
+      <!-- ============ 3.8 ============ -->
+      <h2>3.8 用脚本管住两个 RunJar</h2>
+
+      <h3>为什么必须写脚本</h3>
+
+      <table>
+        <thead><tr><th>痛点</th><th>具体表现</th></tr></thead>
+        <tbody>
+          <tr><td>命令太长</td><td>每次手敲 <code class="inline">nohup /export/server/.../bin/hive --service metastore</code></td></tr>
+          <tr><td>必须后台</td><td>前台跑法终端被占死，只能再开窗口</td></tr>
+          <tr><td><b>停不掉</b></td><td><code class="inline">kill metastore</code>、<code class="inline">kill hiveserver2</code> <b>完全无效</b>——进程名不叫这个</td></tr>
+          <tr><td>记 PID 麻烦</td><td>两个进程号每次都不一样</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn"><b>关键发现：这两个服务在进程表里统一叫 <code class="inline">RunJar</code>。</b>
+        <p>因为 <code class="inline">hive</code> 脚本本质是 <code class="inline">java -cp ... org.apache.hadoop.util.RunJar</code>。所以按名字 kill 杀不掉，只能先取 PID 再 <code class="inline">kill -9</code>。</p>
+        <p>取 PID 用 <code class="inline">jps | grep RunJar | awk '{print $1}'</code>——<code class="inline">jps</code> 输出两列"PID 名称"，取第一列。用 <code class="inline">ps -ef</code> 的话第一列是用户名、<b>第二列</b>才是 PID，别混。</p>
+      </div>
+
+      <h3>完整脚本</h3>
+
+<pre class="code"><span class="cm">#!/bin/bash</span>
+
+<span class="kw">read</span> -p <span class="st">"请输入您要执行的动作(start|stop): "</span> action
+
+<span class="kw">case</span> $action <span class="kw">in</span>
+  start|S)
+    start-all.sh
+    nohup /export/server/apache-hive-3.1.2-bin/bin/hive --service metastore \
+      &gt; /export/server/apache-hive-3.1.2-bin/metastore.log 2&gt;&amp;1 &amp;
+    nohup /export/server/apache-hive-3.1.2-bin/bin/hive --service hiveserver2 \
+      &gt; /export/server/apache-hive-3.1.2-bin/hiveserver2.log 2&gt;&amp;1 &amp;
+    ;;
+  stop|T)
+    <span class="kw">for</span> i <span class="kw">in</span> $(jps | grep RunJar | awk <span class="st">'{print $1}'</span>)
+    <span class="kw">do</span>
+      <span class="kw">kill</span> -9 $i
+    <span class="kw">done</span>
+    stop-all.sh
+    ;;
+  *)
+    <span class="kw">echo</span> <span class="st">"您的输入有误，请重新输入"</span>
+    ;;
+<span class="kw">esac</span></pre>
+
+<pre class="code">chmod +x hive-manager.sh
+./hive-manager.sh
+<span class="cm"># 输入 S → 起 Hadoop + Metastore + HS2；输入 T → 全停</span></pre>
+
+      <h3>这一章的三层收获</h3>
+
+      <div class="callout ok">
+        <p><b>① 概念层</b>：数仓不生产也不消费数据；OLTP 与 OLAP 的分野决定了技术选型；五层架构是一个"表越来越少"的漏斗。</p>
+        <p><b>② 方法层</b>：分层的经济动机只有两条——减少重复计算、隔离变化；ELT 流行是因为存储和算力变便宜了，不是因为它"更先进"。</p>
+        <p><b>③ 操作层</b>：guava 对齐、驱动类名与 jar 版本对齐、MySQL 8.x 认证插件、HS2 启动慢——<b>四个坑全是"配置看着对但就是起不来"的类型</b>，排查时按"版本对齐"这个思路走，比逐个试快得多。</p>
+      </div>
+
+      <p class="muted small">（11 · 全篇；补充了脚本可改进的方向）</p>
+
+      <!-- ============ 打卡 ============ -->
+      <h2>✅ 本章打卡清单</h2>
+      <div class="checklist-card check">
+        <label><input type="checkbox" id="c03-1" data-persist><span>能用一句话定住数仓（既不生产也不消费数据），并由此推出四个特征；讲得出"为什么必须建数仓"的真实场景（3.1）</span></label>
+        <label><input type="checkbox" id="c03-2" data-persist><span>OLTP 与 OLAP 的六维对比能说全，且能解释"Hive 为什么算 OLAP"（不存数据 / 不算数据 / 只存元数据）（3.2）</span></label>
+        <label><input type="checkbox" id="c03-3" data-persist><span>五层架构（ODS/DWD/DWS/DWT/ADS）各自的职责说得清，能举"每日活跃用户订单金额"走完全链路，并讲出"漏斗式收敛"这个形状（3.3）</span></label>
+        <label><input type="checkbox" id="c03-4" data-persist><span>分层的好处能收敛到两条硬理由（减少重复计算 / 隔离变化）；ETL 与 ELT 的因果链讲得清，知道 ELT 不是"不洗数据"（3.4）</span></label>
+        <label><input type="checkbox" id="c03-5" data-persist><span>三种部署方式的判断标准是"元数据库在哪 + Metastore 是否独立"，不是装在哪台机器；知道内嵌模式 Derby 单会话独占的坑（3.5）</span></label>
+        <label><input type="checkbox" id="c03-6" data-persist><span>远程模式能独立装完：guava 要与 Hadoop 对齐、驱动类名要与 jar 版本对齐、MySQL 8.x 要改认证插件、四个 javax.jdo 属性缺一不可（3.6）</span></label>
+        <label><input type="checkbox" id="c03-7" data-persist><span>启动顺序不乱（MySQL → Hadoop → Metastore 9083 → HS2 10000），知道 HS2 首次要等 3~5 分钟，能用 jps 两个 RunJar + netstat 10000 两个信号判断是否真的好（3.7）</span></label>
+        <label><input type="checkbox" id="c03-8" data-persist><span>beeline 两步走（进界面再 !connect）、退出用 !quit；能写出脚本停掉两个 RunJar（按名字 kill 无效的原因讲得清）（3.7 / 3.8）</span></label>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p class="muted small">大数据技术栈 · 第 03 章 · 由 13 个视频（2.0 小时）提炼 · 2026-11</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
